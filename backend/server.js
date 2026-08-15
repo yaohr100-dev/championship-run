@@ -2,23 +2,29 @@ const express = require('express');
 const path = require('path');
 const sim = require('./sim');
 const { ensureSeeded } = require('./seed');
+const { als, currentSession } = require('./session');
 
 const app = express();
 const PORT = 3000; // fixed port — Railway domain target port must match this
 
 app.use(express.json());
 
+// Scope every request to its own session (multi-user isolation).
+app.use((req, res, next) => {
+  als.run({ session: (req.query.session || 'default').toString().slice(0, 64) }, () => next());
+});
+
 ensureSeeded(); // seed the database on first run / fresh volume
 const db = sim.openDb();
 
 // ---- state helpers ----
 function getState(key, def = null) {
-  const row = db.prepare('SELECT value FROM state WHERE key = ?').get(key);
+  const row = db.prepare('SELECT value FROM state WHERE session_id = ? AND key = ?').get(currentSession(), key);
   return row ? row.value : def;
 }
 function setState(key, value) {
-  db.prepare('INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run(key, String(value));
+  db.prepare('INSERT INTO state (session_id, key, value) VALUES (?, ?, ?) ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value')
+    .run(currentSession(), key, String(value));
 }
 function ensureRerolls() {
   const r = getState('rerolls');
@@ -134,9 +140,9 @@ app.post('/api/matchup', (req, res) => {
 app.get('/api/draft', (req, res) => {
   let candidates = sim.draftCandidates(db);
   const hard = getState('difficulty') === 'hard';
-  const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster').get().c;
+  const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const spent = hard
-    ? db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id').all()
+    ? db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
         .reduce((s, p) => s + sim.playerSalary(p.overall), 0)
     : 0;
 
@@ -147,7 +153,7 @@ app.get('/api/draft', (req, res) => {
     const remaining = sim.HARD_MODE_BUDGET - spent;
     const usable = remaining - (sim.ROSTER_SIZE - rosterCount - 1) * minSalary;
     if (!candidates.some(c => sim.playerSalary(c.overall) <= usable)) {
-      const drafted = new Set(db.prepare('SELECT player_id FROM roster').all().map(r => r.player_id));
+      const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
       const affordable = db.prepare('SELECT * FROM players').all()
         .filter(p => !drafted.has(p.id) && sim.playerSalary(p.overall) <= usable);
       if (affordable.length) candidates[0] = sim.shuffle(affordable)[0];
@@ -173,16 +179,16 @@ app.post('/api/draft/reroll', (req, res) => {
 app.post('/api/roster', (req, res) => {
   const { playerId } = req.body || {};
   if (!playerId) return res.status(400).json({ error: 'playerId required' });
-  const count = db.prepare('SELECT COUNT(*) c FROM roster').get().c;
+  const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   if (count >= sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster already full' });
-  if (db.prepare('SELECT 1 FROM roster WHERE player_id = ?').get(playerId))
+  if (db.prepare('SELECT 1 FROM roster WHERE player_id = ? AND session_id = ?').get(playerId, currentSession()))
     return res.status(400).json({ error: 'Player already drafted' });
 
   // hard mode: enforce the salary cap (reserving the pool's minimum salary for
   // every remaining pick, so you can always finish the draft)
   if (getState('difficulty') === 'hard') {
     const p = db.prepare('SELECT overall FROM players WHERE id = ?').get(playerId);
-    const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id').all()
+    const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
       .reduce((s, x) => s + sim.playerSalary(x.overall), 0);
     const salary = sim.playerSalary(p.overall);
     const futurePicks = sim.ROSTER_SIZE - count - 1; // picks left after this one
@@ -194,27 +200,27 @@ app.post('/api/roster', (req, res) => {
     }
   }
 
-  db.prepare('INSERT INTO roster (player_id, role, slot) VALUES (?, ?, ?)').run(playerId, 'bench', null);
+  db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), playerId, 'bench', null);
   res.json({ ok: true, rosterCount: count + 1 });
 });
 
 // ---- roster / lineup ----
 app.get('/api/roster', (req, res) => {
-  const roster = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id').all();
+  const roster = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession());
   res.json({ roster: roster.map(p => ({ ...playerBrief(p), role: p.role, slot: p.slot })), rosterSize: sim.ROSTER_SIZE, starterCount: sim.STARTER_COUNT });
 });
 app.post('/api/lineup', (req, res) => {
   const { teamName, conference, replacedTeam, starters } = req.body || {};
-  const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster').get().c;
+  const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   if (rosterCount !== sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster must be full (10)' });
   if (!Array.isArray(starters) || starters.length !== sim.STARTER_COUNT)
     return res.status(400).json({ error: 'Need exactly 5 starters with slots' });
   setState('team_name', teamName || replacedTeam || 'My Team');
   setState('conference', conference === 'East' ? 'East' : 'West');
   setState('replaced_team', replacedTeam || 'Boston Celtics');
-  db.prepare("UPDATE roster SET role = 'bench', slot = NULL").run();
+  db.prepare("UPDATE roster SET role = 'bench', slot = NULL WHERE session_id = ?").run(currentSession());
   for (const s of starters) {
-    db.prepare("UPDATE roster SET role = 'starter', slot = ? WHERE player_id = ?").run(s.slot, s.playerId);
+    db.prepare("UPDATE roster SET role = 'starter', slot = ? WHERE player_id = ? AND session_id = ?").run(s.slot, s.playerId, currentSession());
   }
   upsertCurrentTeam();
   res.json({ ok: true });
@@ -222,8 +228,8 @@ app.post('/api/lineup', (req, res) => {
 
 app.post('/api/reset', (req, res) => {
   const { difficulty } = req.body || {};
-  db.prepare('DELETE FROM roster').run();
-  db.prepare('DELETE FROM state').run();
+  db.prepare('DELETE FROM roster WHERE session_id = ?').run(currentSession());
+  db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
   if (difficulty === 'hard') setState('difficulty', 'hard');
   res.json({ ok: true });
 });
@@ -247,13 +253,13 @@ function currentResults() {
 // exact 10-player roster, so re-saving the same team updates one record instead of
 // piling up duplicates.
 function upsertCurrentTeam(nameOverride) {
-  const roster = db.prepare('SELECT player_id, role, slot FROM roster').all();
+  const roster = db.prepare('SELECT player_id, role, slot FROM roster WHERE session_id = ?').all(currentSession());
   if (roster.length !== sim.ROSTER_SIZE) return null;
   const name = nameOverride || getState('team_name') || 'My Team';
   const resultsJson = JSON.stringify(currentResults());
 
   const sortedIds = roster.map(r => r.player_id).sort((a, b) => a - b);
-  const existing = db.prepare('SELECT id FROM teams').all().find(t => {
+  const existing = db.prepare('SELECT id FROM teams WHERE session_id = ?').all(currentSession()).find(t => {
     const ids = db.prepare('SELECT player_id FROM team_players WHERE team_id = ?').all(t.id)
       .map(r => r.player_id).sort((a, b) => a - b);
     return ids.length === sortedIds.length && ids.every((v, i) => v === sortedIds[i]);
@@ -266,7 +272,7 @@ function upsertCurrentTeam(nameOverride) {
     for (const r of roster) ins.run(existing.id, r.player_id, r.role, r.slot);
     return existing.id;
   }
-  const info = db.prepare('INSERT INTO teams (name, results_json) VALUES (?, ?)').run(name, resultsJson);
+  const info = db.prepare('INSERT INTO teams (session_id, name, results_json) VALUES (?, ?, ?)').run(currentSession(), name, resultsJson);
   const teamId = info.lastInsertRowid;
   for (const r of roster) ins.run(teamId, r.player_id, r.role, r.slot);
   return teamId;
@@ -279,18 +285,18 @@ app.post('/api/save', (req, res) => {
   res.json({ ok: true, teamId });
 });
 app.get('/api/teams', (req, res) => {
-  const teams = db.prepare('SELECT id, name, created_at, results_json FROM teams ORDER BY id DESC').all();
+  const teams = db.prepare('SELECT id, name, created_at, results_json FROM teams WHERE session_id = ? ORDER BY id DESC').all(currentSession());
   res.json({ teams: teams.map(t => ({ id: t.id, name: t.name, created_at: t.created_at, results: t.results_json ? JSON.parse(t.results_json) : null })) });
 });
 app.delete('/api/teams/:id', (req, res) => {
   db.prepare('DELETE FROM team_players WHERE team_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM teams WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM teams WHERE id = ? AND session_id = ?').run(req.params.id, currentSession());
   res.json({ ok: true });
 });
 
 // ---- trophy room ----
 app.get('/api/trophies', (req, res) => {
-  res.json({ trophies: db.prepare('SELECT id, type, player_name, team_name, created_at FROM trophies ORDER BY id DESC').all() });
+  res.json({ trophies: db.prepare('SELECT id, type, player_name, team_name, created_at FROM trophies WHERE session_id = ? ORDER BY id DESC').all(currentSession()) });
 });
 
 // ---- regular season (split into two halves with a mid-season lineup adjustment) ----
@@ -307,7 +313,7 @@ function getConfig() {
 }
 
 function getUserTeam() {
-  return db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id').all()
+  return db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
     .sort((a, b) => {
       // same order as AI teams: starters first, then bench; each group by 2K overall desc
       if (a.role !== b.role) return a.role === 'starter' ? -1 : 1;
@@ -455,7 +461,7 @@ function tradePoints() { return parseInt(getState('trade_points') || '0', 10); }
 function tradeValue(players) { return players.reduce((s, p) => s + p.overall, 0); }
 
 function myRosterRows() {
-  return db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id').all();
+  return db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession());
 }
 
 function brief(p) { return { id: p.id, name: p.name, position: p.position, overall: p.overall }; }
@@ -537,9 +543,9 @@ function executeTrade(myPlayerIds, aiPlayerIds, league) {
   const myOutgoing = myRosterRows().filter((p) => myPlayerIds.includes(+p.id));
   const aiIncoming = aiTeam.players.filter((p) => aiPlayerIds.includes(+p.id));
 
-  const ins = db.prepare('INSERT INTO roster (player_id, role, slot) VALUES (?, ?, ?)');
-  for (const id of myPlayerIds) db.prepare('DELETE FROM roster WHERE player_id = ?').run(id);
-  for (const p of pairRoles(myOutgoing, aiIncoming)) ins.run(p.id, p.role, p.slot);
+  const ins = db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)');
+  for (const id of myPlayerIds) db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(id, currentSession());
+  for (const p of pairRoles(myOutgoing, aiIncoming)) ins.run(currentSession(), p.id, p.role, p.slot);
 
   aiTeam.players = [
     ...aiTeam.players.filter((p) => !aiPlayerIds.includes(+p.id)),
@@ -809,7 +815,7 @@ function seriesMVP(stats) {
 }
 
 function addTrophy(type, playerName, teamName) {
-  db.prepare('INSERT INTO trophies (type, player_name, team_name) VALUES (?, ?, ?)').run(type, playerName, teamName);
+  db.prepare('INSERT INTO trophies (session_id, type, player_name, team_name) VALUES (?, ?, ?, ?)').run(currentSession(), type, playerName, teamName);
 }
 
 app.post('/api/playoffs/start', (req, res) => {
@@ -929,7 +935,7 @@ app.get('/api/result', (req, res) => {
   const seasonAverages = getState('season_averages') ? JSON.parse(getState('season_averages')) : null;
   const playoff = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
   const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
-  const roster = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id').all();
+  const roster = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession());
   res.json({
     teamName: getState('team_name') || 'My Team',
     season: seasonRecord,
@@ -942,8 +948,8 @@ app.get('/api/result', (req, res) => {
 
 // Career summary across all past runs (franchise history).
 app.get('/api/career', (req, res) => {
-  const trophyCounts = db.prepare('SELECT type, COUNT(*) c FROM trophies GROUP BY type').all();
-  const teams = db.prepare('SELECT results_json FROM teams').all();
+  const trophyCounts = db.prepare('SELECT type, COUNT(*) c FROM trophies WHERE session_id = ? GROUP BY type').all(currentSession());
+  const teams = db.prepare('SELECT results_json FROM teams WHERE session_id = ?').all(currentSession());
   let totalWins = 0;
   for (const t of teams) {
     const r = t.results_json ? JSON.parse(t.results_json) : null;

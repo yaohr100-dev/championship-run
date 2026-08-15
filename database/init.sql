@@ -20,17 +20,19 @@ CREATE TABLE IF NOT EXISTS players (
   ft_pct REAL NOT NULL
 );
 
--- The current run's drafted roster (max 12)
+-- The current run's drafted roster (max 10), scoped per session
 CREATE TABLE IF NOT EXISTS roster (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL DEFAULT 'default',
   player_id INTEGER NOT NULL REFERENCES players(id),
   role TEXT NOT NULL DEFAULT 'bench',  -- 'starter' | 'bench'
   slot TEXT                            -- PG/SG/SF/PF/C for starters, NULL for bench
 );
 
--- Saved teams (a named snapshot of a 12-man roster)
+-- Saved teams (a named snapshot of a 10-man roster), scoped per session
 CREATE TABLE IF NOT EXISTS teams (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL DEFAULT 'default',
   name TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now')),
   results_json TEXT
@@ -44,17 +46,20 @@ CREATE TABLE IF NOT EXISTS team_players (
   slot TEXT
 );
 
--- Trophy room (championships + MVP awards, persist across runs)
+-- Trophy room, scoped per session
 CREATE TABLE IF NOT EXISTS trophies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL DEFAULT 'default',
   type TEXT NOT NULL,           -- 'championship' | 'east_mvp' | 'west_mvp' | 'finals_mvp'
   player_name TEXT,             -- for MVP awards
   team_name TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Current run state (key/value): team_name, conference, rerolls, season_result
+-- Current run state (key/value), scoped per session
 CREATE TABLE IF NOT EXISTS state (
-  key TEXT PRIMARY KEY,
-  value TEXT
+  session_id TEXT NOT NULL DEFAULT 'default',
+  key TEXT NOT NULL,
+  value TEXT,
+  PRIMARY KEY (session_id, key)
 );

@@ -118,9 +118,25 @@ function seedDb() {
   console.log(`  with real age: ${realAge}  (defaulted ${count - realAge})`);
 }
 
+// Add per-session columns to any database created before sessions were introduced.
+function migrate(db) {
+  const has = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  if (!has('roster', 'session_id')) db.exec("ALTER TABLE roster ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'");
+  if (!has('teams', 'session_id')) db.exec("ALTER TABLE teams ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'");
+  if (!has('trophies', 'session_id')) db.exec("ALTER TABLE trophies ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'");
+  if (!has('state', 'session_id')) {
+    db.exec('ALTER TABLE state RENAME TO state_old');
+    db.exec("CREATE TABLE state (session_id TEXT NOT NULL DEFAULT 'default', key TEXT NOT NULL, value TEXT, PRIMARY KEY (session_id, key))");
+    db.exec("INSERT INTO state (session_id, key, value) SELECT 'default', key, value FROM state_old");
+    db.exec('DROP TABLE state_old');
+  }
+}
+
 // Seed only if the players table is empty (used on first deploy / fresh volume).
 function ensureSeeded() {
   const db = new DatabaseSync(DB_PATH);
+  db.exec(fs.readFileSync(INIT_PATH, 'utf8')); // ensure tables exist (idempotent)
+  migrate(db);                                // add session_id to any pre-existing tables
   let count = 0;
   try { count = db.prepare('SELECT COUNT(*) c FROM players').get().c; } catch {}
   db.close();

@@ -9,8 +9,12 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 
+let SESSION_ID = localStorage.getItem('championship_session');
+if (!SESSION_ID) { SESSION_ID = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('championship_session', SESSION_ID); }
+
 async function api(path, options) {
-  const res = await fetch(path, options);
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(path + sep + 'session=' + encodeURIComponent(SESSION_ID), options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;

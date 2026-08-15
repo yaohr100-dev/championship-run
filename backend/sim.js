@@ -3,6 +3,7 @@
 
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
+const { currentSession } = require('./session');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'database', 'app.db');
 
@@ -118,7 +119,7 @@ function getRosterPlayers(db) {
 
 // 5 random candidates, excluding drafted, with position diversity (>= 4 of 5)
 function draftCandidates(db) {
-  const drafted = new Set(db.prepare('SELECT player_id FROM roster').all().map(r => r.player_id));
+  const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
   const all = db.prepare('SELECT * FROM players').all().filter(p => !drafted.has(p.id));
   let candidates = [];
   for (let i = 0; i < 200; i++) {
@@ -200,7 +201,7 @@ const NBA_TEAMS = [
 function buildLeague(db, userTeam, config) {
   const { conference = 'West', replacedTeam = 'Boston Celtics', teamName = 'My Team', hard = false } = config || {};
 
-  const draftedIds = new Set(db.prepare('SELECT player_id FROM roster').all().map(r => r.player_id));
+  const draftedIds = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
 
   // AI teams are the 29 real teams other than the replaced one. Shuffle the names so
   // strong/weak rosters spread across BOTH conferences (NBA_TEAMS lists every East
