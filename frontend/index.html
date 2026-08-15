@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Championship Run</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <span class="logo">🏀</span>
+        <div>
+          <h1>Championship Run</h1>
+          <span class="tagline">NBA Roster-Building Simulation</span>
+        </div>
+      </div>
+      <button id="home-btn" class="ghost">Home</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Home -->
+    <section id="home">
+      <div class="panel">
+        <h2>Start a New Run</h2>
+        <div class="row">
+          <div class="field">
+            <label>Your team name <span class="muted">(optional)</span></label>
+            <input id="team-name" placeholder="e.g. The Rebuilders">
+          </div>
+          <div class="field">
+            <label>Replace a team (picks your conference)</label>
+            <select id="replace-team"></select>
+          </div>
+          <div class="field">
+            <label>Draft mode</label>
+            <label class="inline"><input type="radio" name="mode" value="open" checked> Open</label>
+            <label class="inline"><input type="radio" name="mode" value="blind"> Blind</label>
+          </div>
+          <div class="field">
+            <label>Difficulty</label>
+            <label class="inline"><input type="radio" name="difficulty" value="normal" checked> Normal</label>
+            <label class="inline"><input type="radio" name="difficulty" value="hard"> Hard <span class="muted">(salary cap + stronger AI)</span></label>
+          </div>
+        </div>
+        <button id="new-draft" class="primary">Start Draft</button>
+
+        <details class="collapsible section-gap">
+          <summary>Season Archive</summary>
+          <div id="saved-teams" class="muted">No seasons saved yet.</div>
+        </details>
+      </div>
+
+      <div class="panel section-gap">
+        <details class="collapsible">
+          <summary>🏆 Trophy Room</summary>
+          <div id="career" class="muted" style="margin-bottom:8px">No history yet.</div>
+          <div id="trophy-room" class="muted">No trophies yet. Win a championship!</div>
+        </details>
+      </div>
+
+      <div class="panel section-gap">
+        <details class="collapsible">
+          <summary>Player Library <span class="muted">(click to expand)</span></summary>
+          <div class="row">
+            <label class="inline">Position
+              <select id="lib-pos">
+                <option value="">All</option>
+                <option>PG</option><option>SG</option><option>SF</option><option>PF</option><option>C</option>
+              </select>
+            </label>
+            <span class="muted">Click a column header to sort.</span>
+          </div>
+          <div class="table-wrap">
+            <table id="library">
+              <thead>
+                <tr>
+                  <th data-sort="name">Name</th>
+                  <th data-sort="position">Pos</th>
+                  <th data-sort="overall">OVR</th>
+                  <th data-sort="rating">Rtg</th>
+                  <th data-sort="pts">PTS</th>
+                  <th data-sort="trb">TRB</th>
+                  <th data-sort="ast">AST</th>
+                  <th data-sort="stl">STL</th>
+                  <th data-sort="blk">BLK</th>
+                  <th data-sort="oepm">OEPM</th>
+                  <th data-sort="depm">DEPM</th>
+                  <th data-sort="epm">EPM</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+
+      <div class="panel section-gap">
+        <details class="collapsible" id="matchup-details">
+          <summary>⚔️ Simulate Matchup</summary>
+          <div id="matchup-panel">
+            <p class="muted" style="margin-top:4px">Build two 10-man teams, set 5 starters each, then simulate head-to-head.</p>
+            <div class="matchup-grid">
+              <div class="matchup-team" id="mm-team-a"></div>
+              <div class="matchup-team" id="mm-team-b"></div>
+            </div>
+            <div class="row" style="margin-top:16px">
+              <div class="field">
+                <label>Mode</label>
+                <select id="mm-mode">
+                  <option value="regular">Regular Season</option>
+                  <option value="playoff">Playoff (starters/top-8 favoured)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Times (max 100)</label>
+                <input id="mm-times" type="number" min="1" max="100" value="10">
+              </div>
+              <button id="mm-simulate" class="primary">Simulate</button>
+            </div>
+            <div id="mm-result"></div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- 2. Draft -->
+    <section id="draft" hidden>
+      <h2>Draft <span id="draft-progress" class="muted"></span></h2>
+      <p class="page-desc">Pick 1 of 5 players each round, until you have 10.</p>
+      <button id="reroll">Re-roll (<span id="reroll-count">5</span>)</button>
+      <div id="draft-roster" class="panel"></div>
+      <div id="candidates" class="grid"></div>
+    </section>
+
+    <!-- 3. Lineup -->
+    <section id="lineup" hidden>
+      <h2>Set Your Starting 5</h2>
+      <p class="page-desc">Assign one player per position. Out-of-position players take a rating penalty.</p>
+      <div id="strength-banner" class="strength-banner">
+        <span>Team Strength</span>
+        <span id="strength-value" class="strength-value">—</span>
+        <span class="muted">updates as you change starters</span>
+      </div>
+      <div id="slots"></div>
+      <div id="bench" class="panel"></div>
+      <div class="row">
+        <button id="confirm-lineup" class="primary">Confirm Lineup</button>
+      </div>
+    </section>
+
+    <!-- 4. Season -->
+    <section id="season" hidden>
+      <h2>Regular Season</h2>
+      <button id="simulate-season" class="primary">Simulate 82-Game Season</button>
+      <div id="season-result"></div>
+    </section>
+
+    <!-- 5. Playoffs -->
+    <section id="playoffs" hidden>
+      <h2>Playoffs</h2>
+      <div id="playoffs-body"></div>
+    </section>
+
+    <!-- 6. Result -->
+    <section id="result" hidden>
+      <div id="result-body"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
