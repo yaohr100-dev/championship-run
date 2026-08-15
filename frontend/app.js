@@ -830,10 +830,16 @@ function buildMatchupTeam(box, prefix, defaultIds) {
 }
 
 async function initMatchup() {
-  const { players } = await api('/api/players?sort=rating&order=desc');
-  matchupPlayers = players;
-  buildMatchupTeam($('mm-team-a'), 'a', players.slice(0, 10).map((p) => p.id));
-  buildMatchupTeam($('mm-team-b'), 'b', players.slice(10, 20).map((p) => p.id));
+  try {
+    const { players } = await api('/api/players?sort=rating&order=desc');
+    matchupPlayers = players;
+    buildMatchupTeam($('mm-team-a'), 'a', players.slice(0, 10).map((p) => p.id));
+    buildMatchupTeam($('mm-team-b'), 'b', players.slice(10, 20).map((p) => p.id));
+  } catch (e) {
+    console.error('initMatchup failed:', e);
+    const panel = $('matchup-panel');
+    if (panel) panel.insertAdjacentHTML('afterbegin', `<p class="muted">Failed to load players: ${e.message}</p>`);
+  }
 }
 
 function readMatchupTeam(prefix) {
@@ -872,11 +878,8 @@ function renderMatchupResult(j) {
 
 // ---------- init ----------
 (async () => {
-  await loadNbaTeams();
-  await loadLibrary();
-  await loadCareer();
-  await loadSavedTeams();
-  await loadTrophies();
+  // Register event listeners synchronously (before any async work), so they're
+  // always available even if an initial fetch below fails.
   $('library').querySelectorAll('th[data-sort]').forEach((th) => {
     th.addEventListener('click', () => {
       const col = th.dataset.sort;
@@ -889,5 +892,13 @@ function renderMatchupResult(j) {
   $('matchup-details').addEventListener('toggle', () => {
     if ($('matchup-details').open && !matchupPlayers.length) initMatchup();
   });
+
+  // Load initial data (best-effort — a single failure shouldn't break the whole app).
+  try { await loadNbaTeams(); } catch (e) { console.error('loadNbaTeams', e); }
+  try { await loadLibrary(); } catch (e) { console.error('loadLibrary', e); }
+  try { await loadCareer(); } catch (e) { console.error('loadCareer', e); }
+  try { await loadSavedTeams(); } catch (e) { console.error('loadSavedTeams', e); }
+  try { await loadTrophies(); } catch (e) { console.error('loadTrophies', e); }
+
   show('home');
 })();
