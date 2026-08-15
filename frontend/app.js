@@ -389,6 +389,7 @@ function renderTradeUI() {
     panel.innerHTML = `
       ${tradeNotice ? `<div class="trade-notice">${tradeNotice}</div>` : ''}
       <div class="trade-header muted">${remainingPoints} trade point${remainingPoints === 1 ? '' : 's'} remaining this season</div>
+      <div class="trade-help muted">Rules: 1-for-1 costs 1 point · 2-for-2 costs 2 · 3-for-3 costs 3. You have 3 points total this season.</div>
       <div class="trade-tabs">
         <button class="trade-tab active" data-tab="propose">Propose</button>
         <button class="trade-tab" data-tab="shop">Shop my players</button>
@@ -521,16 +522,17 @@ function renderMidSeason(j) {
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table>`;
   $('season-result').innerHTML = `
-    <div class="midseason-banner">🏀 Mid-season report — <b>${j.wins}-${j.losses}</b> after ${j.games} games</div>
+    <div class="midseason-banner">🏀 Mid-season break — <b>${j.wins}-${j.losses}</b> after ${j.games} games</div>
+    <div class="midseason-help muted">You can now adjust your lineup, make trades, then simulate the second half.</div>
+    <div class="row" style="margin-top:8px">
+      <button id="adjust-mid" class="ghost">🎯 Adjust lineup</button>
+      <button id="trade-mid" class="ghost">🔄 Trade window</button>
+      <button id="finish-season" class="primary">▶ Simulate 2nd half</button>
+    </div>
+    <div id="trade-panel" class="trade-panel" hidden></div>
     ${gameLogHtml(j.gameLog)}
     ${avgTable}
-    ${standingsHtml(j.east, j.west)}
-    <div class="row" style="margin-top:16px">
-      <button id="adjust-mid" class="ghost">Adjust lineup</button>
-      <button id="trade-mid" class="ghost">Trade window</button>
-      <button id="finish-season" class="primary">Simulate 2nd half</button>
-    </div>
-    <div id="trade-panel" class="trade-panel" hidden></div>`;
+    ${standingsHtml(j.east, j.west)}`;
   $('adjust-mid')?.addEventListener('click', () => { show('lineup'); loadLineup(); });
   $('trade-mid')?.addEventListener('click', () => renderTradeUI());
   $('finish-season')?.addEventListener('click', async () => {
