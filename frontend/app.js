@@ -105,9 +105,9 @@ function savedResultsHtml(r) {
 function avgTableHtml(avgs, showPct = true) {
   const pctHead = showPct ? '<th>FG%</th><th>3P%</th><th>FT%</th>' : '';
   const pctCells = (p) => (showPct ? `<td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td>` : '');
-  return `<table><thead><tr><th>Player</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th>${pctHead}</tr></thead><tbody>${
+  return `<div class="table-scroll"><table><thead><tr><th>Player</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th>${pctHead}</tr></thead><tbody>${
     avgs.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}${halfBadge(p.half)}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td>${pctCells(p)}</tr>`).join('')
-  }</tbody></table>`;
+  }</tbody></table></div>`;
 }
 
 async function loadTrophies() {
@@ -497,7 +497,7 @@ function teamRosterHtml(t) {
 function standingsHtml(east, west) {
   const confTable = (title, teams) => `
     <h3>${title} Conference</h3>
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Str</th></tr></thead>
       <tbody>${teams.map((t, i) => `
         <tr${t.isUser ? ' class="me"' : ''}>
@@ -509,7 +509,7 @@ function standingsHtml(east, west) {
           </td>
           <td class="w">${t.wins}</td><td class="l">${t.losses}</td><td>${t.strength}</td>
         </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
   return confTable('Eastern', east) + confTable('Western', west);
 }
 
@@ -517,10 +517,10 @@ function renderMidSeason(j) {
   state.midSeason = j;
   const avgTable = `
     <h3>Your team's first-half averages (${j.games} games)</h3>
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
   $('season-result').innerHTML = `
     <div class="midseason-banner">🏀 Mid-season break — <b>${j.wins}-${j.losses}</b> after ${j.games} games</div>
     <div class="midseason-help muted">You can now adjust your lineup, make trades, then simulate the second half.</div>
@@ -547,10 +547,10 @@ function renderSeason(j) {
   $('simulate-season').hidden = true;
   const avgTable = `
     <h3>Your team's 82-game averages</h3>
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>EPM</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}${halfBadge(p.half)}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td>${fmt(p.epm)}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 
   const playoffBtn = j.madePlayoffs
     ? `<button id="go-playoffs" class="primary" style="margin-top:16px">Continue to Playoffs</button>`
@@ -628,8 +628,8 @@ function renderMatchups(matchups, round) {
 
 function renderRoundResults(j) {
   const statTable = (stats) => `
-    <table><thead><tr><th>Player</th><th>Pos</th><th class="num">PTS</th><th class="num">TRB</th><th class="num">AST</th><th class="num">STL</th><th class="num">BLK</th><th class="num">EPM</th></tr></thead>
-    <tbody>${stats.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td class="num">${fmt(p.pts)}</td><td class="num">${fmt(p.trb)}</td><td class="num">${fmt(p.ast)}</td><td class="num">${fmt(p.stl)}</td><td class="num">${fmt(p.blk)}</td><td class="num">${fmt(p.epm)}</td></tr>`).join('')}</tbody></table>`;
+    <div class="table-scroll"><table><thead><tr><th>Player</th><th>Pos</th><th class="num">PTS</th><th class="num">TRB</th><th class="num">AST</th><th class="num">STL</th><th class="num">BLK</th><th class="num">EPM</th></tr></thead>
+    <tbody>${stats.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td class="num">${fmt(p.pts)}</td><td class="num">${fmt(p.trb)}</td><td class="num">${fmt(p.ast)}</td><td class="num">${fmt(p.stl)}</td><td class="num">${fmt(p.blk)}</td><td class="num">${fmt(p.epm)}</td></tr>`).join('')}</tbody></table></div>`;
 
   const resultsHtml = j.results.map((s) => `
     <div class="series${s.isUserSeries ? ' user' : ''}">
@@ -869,8 +869,8 @@ function renderMatchupResult(j) {
   const teamTable = (name, stats, wins, losses, avgScore) => `
     <div class="mm-team-result">
       <div class="mm-team-head"><b>${name}</b> <span class="muted">${wins}-${losses} · avg ${avgScore} pts</span></div>
-      <table><thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th></tr></thead>
-      <tbody>${stats.slice().sort((a, b) => b.pts - a.pts).map((s) => `<tr><td>${s.name}</td><td>${s.position}</td><td class="num">${fmt(s.pts)}</td><td class="num">${fmt(s.trb)}</td><td class="num">${fmt(s.ast)}</td><td class="num">${fmt(s.stl)}</td><td class="num">${fmt(s.blk)}</td></tr>`).join('')}</tbody></table>
+      <div class="table-scroll"><table><thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th></tr></thead>
+      <tbody>${stats.slice().sort((a, b) => b.pts - a.pts).map((s) => `<tr><td>${s.name}</td><td>${s.position}</td><td class="num">${fmt(s.pts)}</td><td class="num">${fmt(s.trb)}</td><td class="num">${fmt(s.ast)}</td><td class="num">${fmt(s.stl)}</td><td class="num">${fmt(s.blk)}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
   $('mm-result').innerHTML = `
     <h3 style="margin-top:20px">Matchup Result <span class="muted">(${j.times} games · ${j.mode} mode)</span></h3>
