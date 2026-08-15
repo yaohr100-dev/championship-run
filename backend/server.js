@@ -4,7 +4,7 @@ const sim = require('./sim');
 const { ensureSeeded } = require('./seed');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = 3000; // fixed port — Railway domain target port must match this
 
 app.use(express.json());
 
