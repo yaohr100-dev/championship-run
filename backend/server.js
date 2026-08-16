@@ -453,7 +453,7 @@ app.post('/api/season/finish', (req, res) => {
 
 // ---- trade window (mid-season) ----
 
-const TRADE_ACCEPT_MARGIN = 2; // per player: AI gives up at most this much total overall more
+const TRADE_ACCEPT_MARGIN = 3; // per player: AI gives up at most this much total overall more
 const MAX_TRADE_POINTS = 3;    // trade points per season: 1-for-1 = 1, 2-for-2 = 2, 3-for-3 = 3
 
 function tradePoints() { return parseInt(getState('trade_points') || '0', 10); }
@@ -475,10 +475,15 @@ function pairRoles(outPlayers, inPlayers) {
 }
 
 // Find the n-player package with total overall closest to `target`.
-function bestPackage(players, n, target) {
+function bestPackage(players, n, target, maxValue = Infinity) {
   const L = players.length;
   let best = null, bestDiff = Infinity;
-  const consider = (c) => { const v = tradeValue(c); const d = Math.abs(v - target); if (d < bestDiff) { bestDiff = d; best = c; } };
+  const consider = (c) => {
+    const v = tradeValue(c);
+    if (v > maxValue) return; // never exceed the bound (excess ≤ margin)
+    const d = Math.abs(v - target);
+    if (d < bestDiff) { bestDiff = d; best = c; }
+  };
   for (let i = 0; i < L; i++) {
     if (n === 1) consider([players[i]]);
     for (let j = i + 1; j < L; j++) {
@@ -523,10 +528,12 @@ function generateProposals(myRoster, teams) {
   for (const t of aiTeams) {
     const n = 1 + Math.floor(Math.random() * 3);
     const myPkg = myRoster.slice().sort((a, b) => b.overall - a.overall).slice(0, n);
-    const noise = (Math.random() + Math.random() - 1) * TRADE_ACCEPT_MARGIN * n;
-    const pkg = bestPackage(t.players, n, tradeValue(myPkg) + noise);
+    const myTotal = tradeValue(myPkg);
+    const margin = TRADE_ACCEPT_MARGIN * n;
+    const noise = (Math.random() + Math.random() - 1) * margin;
+    const pkg = bestPackage(t.players, n, myTotal + noise, myTotal + margin);
     if (!pkg) continue;
-    proposals.push({ aiTeam: t.name, myPlayers: myPkg.map(brief), aiPlayers: pkg.map(brief), aiTotal: tradeValue(pkg), myTotal: tradeValue(myPkg) });
+    proposals.push({ aiTeam: t.name, myPlayers: myPkg.map(brief), aiPlayers: pkg.map(brief), aiTotal: tradeValue(pkg), myTotal });
   }
   return proposals;
 }
@@ -679,14 +686,16 @@ app.post('/api/trade/offers', (req, res) => {
 
   const n = myPlayers.length;
   const target = tradeValue(myPlayers);
+  const margin = TRADE_ACCEPT_MARGIN * n;
   const rand = mulberry32(hashIds(myPlayerIds)); // same combination → same 15 offers (no refresh)
   const offers = [];
   const aiTeams = shuffleSeeded(league.teams.filter((t) => !t.isUser), rand).slice(0, 15);
   for (const t of aiTeams) {
     // AI lowballs/highballs within the margin, concentrated near fair (triangular) —
-    // only a small share of offers hit the ±margin extremes.
-    const noise = (rand() + rand() - 1) * TRADE_ACCEPT_MARGIN * n;
-    const pkg = bestPackage(t.players, n, target + noise);
+    // only a small share of offers hit the ±margin extremes. The package is capped at
+    // target + margin so an offer never lets the player exceed the max-difference bound.
+    const noise = (rand() + rand() - 1) * margin;
+    const pkg = bestPackage(t.players, n, target + noise, target + margin);
     if (!pkg) continue;
     offers.push({ aiTeam: t.name, aiPlayers: pkg.map(brief), aiTotal: tradeValue(pkg) });
   }
