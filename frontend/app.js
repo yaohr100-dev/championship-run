@@ -242,7 +242,11 @@ function renderLineup() {
   box.innerHTML = '';
   const used = new Set();
   for (const pos of POSITIONS) {
-    const match = state.roster.find((p) => p.position === pos && !used.has(p.id)) ||
+    // Prefer the player's actual current starter assignment (the slot they were
+    // set to at season start / last lineup save), then fall back to natural-position
+    // matching only for the initial setup right after the draft (nothing assigned yet).
+    const match = state.roster.find((p) => p.role === 'starter' && p.slot === pos && !used.has(p.id)) ||
+      state.roster.find((p) => p.position === pos && !used.has(p.id)) ||
       state.roster.find((p) => !used.has(p.id));
     if (match) used.add(match.id);
     const row = document.createElement('div');
