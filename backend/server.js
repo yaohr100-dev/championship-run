@@ -355,6 +355,7 @@ function finishSeason(res, config, result, playerAverages) {
   const madePlayoffs = myConf.slice(0, 8).some((t) => t.isUser);
   const myStanding = [...result.east, ...result.west].find((t) => t.isUser);
   setState('season_record', JSON.stringify({ wins: myStanding.wins, losses: myStanding.losses, conference: conf }));
+  setState('season_game_log', JSON.stringify(myStanding.gameLog || []));
   setState('season_averages', JSON.stringify(playerAverages));
   setState('season_standings', JSON.stringify({
     east: result.east.map((t) => teamView(t, true)),
@@ -383,6 +384,7 @@ function finishSeason(res, config, result, playerAverages) {
     east: result.east.map((t) => teamView(t, true)),
     west: result.west.map((t) => teamView(t, true)),
     playerAverages,
+    gameLog: myStanding.gameLog || [],
     awards: result.awards,
     madePlayoffs,
   };
@@ -410,9 +412,11 @@ app.post('/api/season/start', (req, res) => {
   const config = getConfig();
 
   const { teams, leagueAvg, aiBonus } = sim.buildLeague(db, userTeam, config);
-  const standings = sim.simulateGames(teams, leagueAvg, aiBonus, HALF_GAMES);
+  const schedule = sim.buildSchedule(teams);
+  const standings = sim.simulateGames(teams, schedule.first, aiBonus);
 
   setState('season_league', JSON.stringify({ teams, leagueAvg, aiBonus }));
+  setState('season_schedule', JSON.stringify(schedule));
   setState('season_standings', JSON.stringify(standings));
   setState('trade_points', '0');
   setState('trade_proposals', JSON.stringify(generateProposals(userTeam, teams)));
@@ -439,10 +443,12 @@ app.post('/api/season/start', (req, res) => {
 app.post('/api/season/finish', (req, res) => {
   const rawLeague = getState('season_league');
   const rawStandings = getState('season_standings');
-  if (!rawLeague || !rawStandings) return res.status(400).json({ error: 'Start the season first' });
+  const rawSchedule = getState('season_schedule');
+  if (!rawLeague || !rawStandings || !rawSchedule) return res.status(400).json({ error: 'Start the season first' });
 
   const { teams, leagueAvg, aiBonus } = JSON.parse(rawLeague);
   const standings1 = JSON.parse(rawStandings);
+  const schedule = JSON.parse(rawSchedule);
 
   const userTeam = getUserTeam();
   const err = validateSeasonTeam(userTeam);
@@ -452,7 +458,7 @@ app.post('/api/season/finish', (req, res) => {
   const teams2 = teams.map((t) => (t.isUser ? { ...t, players: userTeam } : t));
   const strengthOf = (t) => sim.teamStrength(t.players) + (t.isUser ? 0 : aiBonus);
   const leagueAvg2 = teams2.reduce((s, t) => s + strengthOf(t), 0) / teams2.length;
-  const standings2 = sim.simulateGames(teams2, leagueAvg2, aiBonus, HALF_GAMES);
+  const standings2 = sim.simulateGames(teams2, schedule.second, aiBonus);
 
   const combined = sim.mergeStandings(standings1, standings2, HALF_GAMES * 2);
   const result = sim.finalizeSeason(combined, HALF_GAMES * 2, leagueAvg2);
@@ -771,12 +777,25 @@ function simulateSeries(a, b) {
   const aStrength = sim.teamStrength(a.players, true) + (a.isUser ? 0 : sim.HARD_AI_BONUS);
   const bStrength = sim.teamStrength(b.players, true) + (b.isUser ? 0 : sim.HARD_AI_BONUS);
 
+  // 2-2-1-1-1 home court: the team with the better regular-season record hosts
+  // games 1,2,5,7; the worse record hosts 3,4,6. This uses `wins`, so it stays with
+  // the better team even after an upset, and works across conferences in the Finals
+  // (a conference seed number is meaningless when East meets West). Ties give home
+  // court to team `a`.
+  const aIsHome = (a.wins ?? 0) >= (b.wins ?? 0);
+  const aHosts = (g) => {
+    const aGame = g === 1 || g === 2 || g === 5 || g === 7;
+    return aIsHome ? aGame : !aGame;
+  };
+
   for (let g = 1; g <= 7 && aw < 4 && bw < 4; g++) {
-    // playoff mode = top-heavy minutes (starters/top-8 favoured) + steeper win curve,
-    // identical to the matchup simulator's "playoff" mode.
-    const r = sim.simulateMatchup(a.players, b.players, 'playoff', aStrength, bStrength);
+    // Home team gets HOME_ADV_PO (scaled to the steeper playoff curve, same ~60%
+    // home win rate as the regular season). Team `a` keeps its slot so r.aWins maps cleanly.
+    const aEff = aStrength + (aHosts(g) ? sim.HOME_ADV_PO : 0);
+    const bEff = bStrength + (aHosts(g) ? 0 : sim.HOME_ADV_PO);
+    const r = sim.simulateMatchup(a.players, b.players, 'playoff', aEff, bEff);
     if (r.aWins) aw++; else bw++;
-    games.push({ g, winner: r.aWins ? a.name : b.name, aScore: Math.round(r.aScore), bScore: Math.round(r.bScore) });
+    games.push({ g, winner: r.aWins ? a.name : b.name, aScore: Math.round(r.aScore), bScore: Math.round(r.bScore), home: aHosts(g) ? a.name : b.name });
     accumulateStats(aAcc, r.aStats, a.players);
     accumulateStats(bAcc, r.bStats, b.players);
   }
@@ -998,11 +1017,13 @@ app.get('/api/result', (req, res) => {
   const seasonAverages = getState('season_averages') ? JSON.parse(getState('season_averages')) : null;
   const playoff = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
   const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
+  const gameLog = getState('season_game_log') ? JSON.parse(getState('season_game_log')) : null;
   const roster = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession());
   res.json({
     teamName: getState('team_name') || 'My Team',
     season: seasonRecord,
     seasonAverages,
+    gameLog,
     playoff,
     awards: seasonResult ? seasonResult.awards : null,
     roster: roster.map(p => ({ name: p.name, position: p.position, overall: p.overall, rating: +sim.powerRating(p).toFixed(1), role: p.role })),

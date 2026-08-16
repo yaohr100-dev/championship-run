@@ -69,6 +69,19 @@
             <input id="import-save" type="file" accept=".json,application/json" hidden>
           </div>
           <div id="save-msg" class="muted" style="margin-top:8px"></div>
+          <div style="margin-top:10px; border-top:1px solid rgba(128,128,128,.25); padding-top:10px">
+            <div class="muted">Your Session ID — save it to restore your progress later:</div>
+            <div class="row" style="margin-top:6px">
+              <input id="session-id" readonly style="flex:1">
+              <button id="copy-session" class="ghost">Copy</button>
+            </div>
+            <div class="muted" style="margin-top:6px">Switch to another session (e.g. an old or backed-up ID):</div>
+            <div class="row" style="margin-top:6px">
+              <input id="switch-session" placeholder="paste a session ID" style="flex:1">
+              <button id="apply-session" class="ghost">Switch</button>
+            </div>
+            <div id="session-msg" class="muted" style="margin-top:6px"></div>
+          </div>
         </details>
       </div>
 

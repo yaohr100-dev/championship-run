@@ -24,6 +24,22 @@ const fmt = (n) => (typeof n === 'number' ? n.toFixed(1) : n);
 const pct = (n) => (typeof n === 'number' ? (n * 100).toFixed(1) + '%' : '—');
 const halfBadge = (half) => (half === 'first' ? ' <span class="half-badge first">1st half only</span>' : (half === 'second' ? ' <span class="half-badge second">2nd half only</span>' : ''));
 
+// ---------- Session ID (view / switch your save) ----------
+function initSessionUI() {
+  $('session-id').value = SESSION_ID;
+  $('copy-session').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(SESSION_ID); $('session-msg').textContent = 'Session ID copied.'; }
+    catch (e) { $('session-id').select(); $('session-msg').textContent = 'Copy failed — select and copy it manually.'; }
+  });
+  $('apply-session').addEventListener('click', () => {
+    const v = ($('switch-session').value || '').trim().slice(0, 64);
+    if (!v) { $('session-msg').textContent = 'Paste a session ID first.'; return; }
+    localStorage.setItem('championship_session', v);
+    SESSION_ID = v;
+    location.reload();
+  });
+}
+
 // ---------- Home ----------
 async function loadNbaTeams() {
   const { teams } = await api('/api/nba-teams');
@@ -267,9 +283,14 @@ function renderCandidates(candidates) {
   const box = $('candidates');
   box.innerHTML = '';
   const blind = state.mode === 'blind';
+  // positions the roster still needs (for the "need" badge)
+  const posCount = {};
+  for (const p of state.roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
+  const needed = new Set(['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]));
   for (const c of candidates) {
     const card = document.createElement('div');
     card.className = 'card';
+    const need = needed.has(c.position);
     card.innerHTML = `
       <div class="card-top">
         <strong>${c.name}</strong>
@@ -278,8 +299,9 @@ function renderCandidates(candidates) {
       <div class="stats">Age ${c.age}</div>
       ${blind
         ? '<div class="stats">Ratings hidden (blind draft)</div>'
-        : `<div class="stats">OVR ${c.overall} · EPM ${c.epm}</div>
+        : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
            <div class="stats">${c.pts} pts · ${c.trb} reb · ${c.ast} ast</div>`}
+      ${need ? '<div class="need-badge">Need ' + c.position + '</div>' : ''}
       ${state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
       <button data-id="${c.id}">Pick</button>`;
     card.querySelector('button').addEventListener('click', async () => {
@@ -456,12 +478,23 @@ function awardsHtml(awards) {
 
 function gameLogHtml(games) {
   if (!games || !games.length) return '';
-  const last = games[games.length - 1];
+  // current streak (most recent consecutive W or L); games are { opp, home, win, score, oppScore, star }
+  const lastWin = games[games.length - 1].win;
   let streak = 0;
-  for (let i = games.length - 1; i >= 0 && games[i] === last; i--) streak++;
+  for (let i = games.length - 1; i >= 0 && games[i].win === lastWin; i--) streak++;
+  const wins = games.filter((g) => g.win).length;
+  const losses = games.length - wins;
+  const rows = games.slice().reverse().map((g) => `
+    <div class="gl-row ${g.win ? 'gl-win' : 'gl-loss'}">
+      <span class="gl-result ${g.win ? 'good' : 'bad'}">${g.win ? 'W' : 'L'}</span>
+      <span class="gl-vs muted">${g.home ? 'vs' : '@'}</span>
+      <span class="gl-opp">${g.opp}</span>
+      <span class="gl-score">${g.score}–${g.oppScore}</span>
+      ${g.star ? `<span class="gl-star muted">⭐ ${g.star}</span>` : ''}
+    </div>`).join('');
   return `
-    <h3>Season Form <span class="muted">· ${streak}-game ${last === 'W' ? 'win' : 'loss'} streak</span></h3>
-    <div class="game-log">${games.map((r) => `<span class="g ${r === 'W' ? 'g-w' : 'g-l'}">${r}</span>`).join('')}</div>`;
+    <h3>Season Form <span class="muted">· ${streak}-game ${lastWin ? 'win' : 'loss'} streak · ${wins}-${losses}</span></h3>
+    <div class="game-log-list">${rows}</div>`;
 }
 
 let tradePool = null;
@@ -664,7 +697,7 @@ function renderSeason(j) {
 
   $('season-result').innerHTML =
     `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>` +
-    gameLogHtml([...j.east, ...j.west].find((t) => t.isUser)?.games) +
+    gameLogHtml(j.gameLog) +
     awardsHtml(j.awards) +
     standingsHtml(j.east, j.west) + avgTable + playoffBtn;
 
@@ -796,6 +829,7 @@ function showResult() {
     const starters = r.roster.filter((p) => p.role === 'starter');
     const bench = r.roster.filter((p) => p.role !== 'starter');
     const top = (r.seasonAverages || []).slice().sort((a, b) => b.pts - a.pts).slice(0, 5);
+    const leaderOf = (key) => (r.seasonAverages || []).slice().sort((a, b) => b[key] - a[key])[0];
 
     $('result-body').innerHTML = `
       <div class="result-banner">${banner}</div>
@@ -810,6 +844,12 @@ function showResult() {
         <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span></span>`).join('')}</div></div>
       </div>
       ${top.length ? `<div class="result-top"><b>Top scorers</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} pts</span></span>`).join('')}</div></div>` : ''}
+      ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>Team leaders</b><div class="chip-list">${
+        [['pts', 'PTS'], ['trb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK']].map(([k, label]) => {
+          const l = leaderOf(k);
+          return l ? `<span class="chip">${label}: ${l.name} <span class="muted">${fmt(l[k])}</span></span>` : '';
+        }).join('')
+      }</div></div>` : ''}
       <div class="row" style="justify-content:center; margin-top:20px">
         <button id="back-home-final" class="primary">Back to Home</button>
       </div>`;
@@ -819,6 +859,7 @@ function showResult() {
 
 async function renderDraftRoster() {
   const { roster } = await api('/api/roster');
+  state.roster = roster;
   const box = $('draft-roster');
   if (!roster.length) { box.innerHTML = '<span class="muted">No players drafted yet.</span>'; return; }
   const posCount = {};
@@ -988,6 +1029,7 @@ function renderMatchupResult(j) {
 (async () => {
   // Register event listeners synchronously (before any async work), so they're
   // always available even if an initial fetch below fails.
+  initSessionUI();
   $('library').querySelectorAll('th[data-sort]').forEach((th) => {
     th.addEventListener('click', () => {
       const col = th.dataset.sort;

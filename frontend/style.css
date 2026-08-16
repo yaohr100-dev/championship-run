@@ -167,7 +167,13 @@ button.ghost:hover { background: var(--panel2); }
   padding: 1px 8px; border-radius: 999px; white-space: nowrap;
 }
 .card .stats { color: var(--muted); font-size: 12.5px; }
+.card .stats .rtg { color: var(--accent); }
 .card .salary { color: var(--gold); font-weight: 700; font-size: 12.5px; }
+.card .need-badge {
+  align-self: flex-start; font-size: 11px; font-weight: 800; letter-spacing: 0.3px;
+  color: var(--gold); background: rgba(245, 181, 10, 0.14);
+  border: 1px solid rgba(245, 181, 10, 0.3); padding: 1px 8px; border-radius: 999px;
+}
 .card button { margin-top: auto; padding-top: 8px; padding-bottom: 8px; width: 100%; }
 
 /* --------------------------------------------------------------------------
@@ -283,9 +289,9 @@ details .starters, details .roster {
 .rs { text-align: center; }
 .rs-v { display: block; font-size: 22px; font-weight: 800; color: var(--accent); }
 .rs-k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.result-awards, .result-roster, .result-top { margin: 14px auto; max-width: 640px; text-align: left; }
-.result-roster > div, .result-top > div { margin-top: 8px; }
-.result-roster b, .result-top b { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.result-awards, .result-roster, .result-top, .result-leaders { margin: 14px auto; max-width: 640px; text-align: left; }
+.result-roster > div, .result-top > div, .result-leaders > div { margin-top: 8px; }
+.result-roster b, .result-top b, .result-leaders b { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* --------------------------------------------------------------------------
    Saved teams
@@ -343,6 +349,26 @@ details .starters, details .roster {
 }
 .g-w { background: var(--good); color: #062; }
 .g-l { background: #3b2630; color: #fda4af; }
+
+/* Per-game season log (opponent, home/away, score, star of the game) */
+.game-log-list {
+  max-height: 320px; overflow-y: auto; margin: 8px 0 6px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  padding: 4px 10px; background: var(--bg);
+}
+.gl-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 2px; border-bottom: 1px solid var(--border-soft);
+  font-size: 13px;
+}
+.gl-row:last-child { border-bottom: none; }
+.gl-result { width: 18px; font-weight: 800; font-size: 13px; flex-shrink: 0; }
+.gl-win { border-left: 3px solid var(--good); padding-left: 8px; }
+.gl-loss { border-left: 3px solid var(--bad); padding-left: 8px; }
+.gl-vs { width: 16px; text-align: center; flex-shrink: 0; }
+.gl-opp { flex: 1; font-weight: 600; }
+.gl-score { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
+.gl-star { font-size: 12px; white-space: nowrap; }
 
 /* --------------------------------------------------------------------------
    Live strength feedback (lineup / draft)

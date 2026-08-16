@@ -28,7 +28,9 @@ const PTS_SHARE_EXP = 1.2;     // scoring-share exponent: >1 lets stars keep a b
 const OVERALL_SHARE_EXP = 0.5; // overall weighting: higher-overall players get a bigger scoring slice
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
-const SCALE_PO = 5;            // playoffs: steeper (better team wins more reliably)
+const SCALE_PO = 5;            // playoffs: steeper (better team wins more reliably). Best-of-7 already makes favourites near-certain; scale 4-9 differ <2% on series outcomes.
+const HOME_ADV = 2.0;          // regular-season home-court strength boost (rating points) — ~60% home win rate
+const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // playoffs: same home win rate as regular season (~60%), scaled to the steeper curve
 const TEAMS_PER_CONF = 15;
 
 function openDb() {
@@ -233,34 +235,88 @@ function buildLeague(db, userTeam, config) {
   return { teams, leagueAvg, aiBonus };
 }
 
-// Simulate `games` games for every team. Each returned team carries wins/losses,
-// the user's W/L game log, and `acc` (player stat TOTALS keyed by player name).
-function simulateGames(teams, leagueAvg, aiBonus, games) {
+// Build the 82-game regular-season schedule, split into two 41-game halves so the
+// mid-season trade window can sit between them.
+//   Half 1: one full round robin (29) + 12 intra-conference games (41)
+//   Half 2: the mirrored round robin + the other 12 intra-conference games (41)
+// Every team faces every other team exactly twice (once home, once away), plus a
+// home-and-home against 12 same-conference opponents — a 30-team analogue of the
+// real NBA's conference-heavy schedule.
+function buildSchedule(teams) {
+  const n = teams.length;
+  const rr1 = [], rr2 = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      rr1.push({ home: i, away: j });
+      rr2.push({ home: j, away: i });
+    }
+  }
+  // Extra intra-conference home-and-home games (12 opponents per team), built as a
+  // cycle so the edges stay symmetric: each team plays the 6 teams ahead of it and
+  // the 6 behind it in its conference's circular order.
+  const exA = [], exB = [];
+  for (const conf of ['East', 'West']) {
+    const ids = teams.map((t, k) => (t.conf === conf ? k : -1)).filter((k) => k >= 0);
+    const m = ids.length;
+    for (let k = 0; k < m; k++) {
+      for (let d = 1; d <= 6; d++) {
+        const a = ids[k], b = ids[(k + d) % m];
+        exA.push({ home: a, away: b });
+        exB.push({ home: b, away: a });
+      }
+    }
+  }
+  return { first: [...rr1, ...exA], second: [...rr2, ...exB] };
+}
+
+// Best box-score line in a single game (used for "player of the game").
+function gameStar(stats) {
+  let best = null, bestScore = -Infinity;
+  for (const s of stats) {
+    const score = s.pts + 1.2 * s.trb + 1.5 * s.ast + 2 * s.stl + 2 * s.blk;
+    if (score > bestScore) { bestScore = score; best = s; }
+  }
+  return best ? best.name : null;
+}
+
+// Simulate one half's schedule head-to-head. Each matchup produces a real score and
+// a winner (home court helps); both teams accumulate stats, W/L and — for the user —
+// a per-game log. `schedule` is an array of { home, away } indices into `teams`.
+function simulateGames(teams, schedule, aiBonus) {
   const strengthOf = (t) => teamStrength(t.players) + (t.isUser ? 0 : aiBonus);
-  return teams.map((t) => {
+  const rows = teams.map((t) => {
     const s = strengthOf(t);
     const acc = {};
     for (const p of t.players) acc[p.name] = { name: p.name, position: p.position, games: 0, pts: 0, trb: 0, ast: 0, stl: 0, blk: 0, epm: 0, depm: 0, fgPct: 0, threePct: 0, ftPct: 0 };
-    let wins = 0;
-    const gameLog = t.isUser ? [] : null;
-    for (let g = 0; g < games; g++) {
-      const F = teamForm(t.players) * gameLuck();   // team form + "any given night" luck
-      const eff = s * F;
-      const win = Math.random() < winProb(eff - leagueAvg, SCALE_RS);
-      if (win) wins++;
-      if (t.isUser) gameLog.push(win ? 'W' : 'L');
-      for (const st of simulateSeasonGame(t.players, s)) {
-        const entry = acc[st.name];
-        if (!entry) continue;
-        const p = t.players.find((x) => x.name === st.name);
-        entry.games += 1;
-        entry.pts += st.pts; entry.trb += st.trb; entry.ast += st.ast; entry.stl += st.stl; entry.blk += st.blk;
-        entry.epm += gameEPM(st, p); entry.depm += gameDEPM(st, p);
-        entry.fgPct += st.fgPct; entry.threePct += st.threePct; entry.ftPct += st.ftPct;
-      }
-    }
-    return { ...t, strength: s, wins, losses: games - wins, winPct: wins / games, gameLog, acc };
+    return { t, s, wins: 0, played: 0, gameLog: t.isUser ? [] : null, acc };
   });
+
+  const accumulate = (row, stats) => {
+    for (const st of stats) {
+      const entry = row.acc[st.name];
+      if (!entry) continue;
+      const p = row.t.players.find((x) => x.name === st.name);
+      entry.games += 1;
+      entry.pts += st.pts; entry.trb += st.trb; entry.ast += st.ast; entry.stl += st.stl; entry.blk += st.blk;
+      entry.epm += gameEPM(st, p); entry.depm += gameDEPM(st, p);
+      entry.fgPct += st.fgPct; entry.threePct += st.threePct; entry.ftPct += st.ftPct;
+    }
+  };
+
+  for (const { home, away } of schedule) {
+    const H = rows[home], A = rows[away];
+    // a = home team; home court adds HOME_ADV to its effective strength.
+    const r = simulateMatchup(H.t.players, A.t.players, 'regular', H.s + HOME_ADV, A.s);
+    const homeWon = r.aWins;
+    H.played++; A.played++;
+    if (homeWon) H.wins++; else A.wins++;
+    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: gameStar(r.aStats) });
+    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: gameStar(r.bStats) });
+    accumulate(H, r.aStats);
+    accumulate(A, r.bStats);
+  }
+
+  return rows.map(({ t, s, wins, played, gameLog, acc }) => ({ ...t, strength: s, wins, losses: played - wins, winPct: played ? wins / played : 0, gameLog, acc }));
 }
 
 // Merge two half-season results (same teams, same order) into one full season.
@@ -298,11 +354,14 @@ function finalizeSeason(standings, totalGames, leagueAvg) {
   return { east, west, leagueAvg, awards: computeAwards(standings) };
 }
 
-// Full-season convenience (one call).
+// Full-season convenience (one call): both halves of the schedule, merged.
 function simulateSeason(db, userTeam, config) {
   const { teams, leagueAvg, aiBonus } = buildLeague(db, userTeam, config);
-  const standings = simulateGames(teams, leagueAvg, aiBonus, SEASON_GAMES);
-  return finalizeSeason(standings, SEASON_GAMES, leagueAvg);
+  const schedule = buildSchedule(teams);
+  const s1 = simulateGames(teams, schedule.first, aiBonus);
+  const s2 = simulateGames(teams, schedule.second, aiBonus);
+  const combined = mergeStandings(s1, s2, SEASON_GAMES);
+  return finalizeSeason(combined, SEASON_GAMES, leagueAvg);
 }
 
 // Single-game EPM: anchored to the player's real EPM, adjusted by their per-game
@@ -516,8 +575,8 @@ function shotPct(base, amplitude, min, max) {
 
 module.exports = {
   openDb, powerRating, playerSalary, minutesWeight, positionDiscount, teamStrength,
-  draftCandidates, generateAITeam, simulateSeason, buildLeague, simulateGames, mergeStandings, finalizeSeason,
+  draftCandidates, generateAITeam, simulateSeason, buildLeague, buildSchedule, simulateGames, mergeStandings, finalizeSeason,
   simulateMatchup, simulateSeasonGame,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
-  HARD_MODE_BUDGET, HARD_AI_BONUS,
+  HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO,
 };
