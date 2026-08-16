@@ -216,15 +216,23 @@ app.post('/api/lineup', (req, res) => {
   if (rosterCount !== sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster must be full (10)' });
   if (!Array.isArray(starters) || starters.length !== sim.STARTER_COUNT)
     return res.status(400).json({ error: 'Need exactly 5 starters with slots' });
-  setState('team_name', teamName || replacedTeam || 'My Team');
-  setState('conference', conference === 'East' ? 'East' : 'West');
-  setState('replaced_team', replacedTeam || 'Boston Celtics');
+
+  // Mid-season "Adjust lineup" must NOT reset the run back to preseason (that would
+  // re-simulate the first half, carry traded-in players into it, and reset trade
+  // points). Team name/conference/phase are only set when the season hasn't started.
+  const curPhase = getState('phase');
+  const isMidseason = curPhase === 'midseason';
+  if (!isMidseason) {
+    setState('team_name', teamName || replacedTeam || 'My Team');
+    setState('conference', conference === 'East' ? 'East' : 'West');
+    setState('replaced_team', replacedTeam || 'Boston Celtics');
+  }
   db.prepare("UPDATE roster SET role = 'bench', slot = NULL WHERE session_id = ?").run(currentSession());
   for (const s of starters) {
     db.prepare("UPDATE roster SET role = 'starter', slot = ? WHERE player_id = ? AND session_id = ?").run(s.slot, s.playerId, currentSession());
   }
   upsertCurrentTeam();
-  setState('phase', 'preseason');
+  if (!isMidseason) setState('phase', 'preseason');
   res.json({ ok: true });
 });
 
