@@ -48,13 +48,51 @@ const DROP_PLAYERS = new Set([
   'trevon scott', 'thomas sorber', 'tamar bates',
 ]);
 
+// Snapshot the user's saved teams + in-progress roster keyed by player NAME, so a
+// reseed can rebuild them after players get fresh ids (see restoreUserData).
+function snapshotUserData(db) {
+  return {
+    teams: db.prepare('SELECT id, session_id, name, created_at, results_json FROM teams').all(),
+    teamPlayers: db.prepare('SELECT tp.team_id, tp.role, tp.slot, p.name AS player_name FROM team_players tp JOIN players p ON p.id = tp.player_id').all(),
+    roster: db.prepare('SELECT r.session_id, r.role, r.slot, p.name AS player_name FROM roster r JOIN players p ON p.id = r.player_id').all(),
+  };
+}
+
+// Re-insert the snapshotted teams/roster, remapping player NAMEs to their fresh ids.
+function restoreUserData(db, saved, newIdByName) {
+  const insTeam = db.prepare('INSERT INTO teams (session_id, name, created_at, results_json) VALUES (?, ?, ?, ?)');
+  const insTP = db.prepare('INSERT INTO team_players (team_id, player_id, role, slot) VALUES (?, ?, ?, ?)');
+  const insRoster = db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)');
+
+  const teamIdMap = new Map();
+  for (const t of saved.teams) teamIdMap.set(t.id, insTeam.run(t.session_id, t.name, t.created_at, t.results_json).lastInsertRowid);
+
+  let rows = 0, skipped = 0;
+  const pid = (name) => { const id = newIdByName.get(normalize(name)); if (id == null) skipped++; return id; };
+  for (const tp of saved.teamPlayers) {
+    const p = pid(tp.player_name), tid = teamIdMap.get(tp.team_id);
+    if (p != null && tid != null) { insTP.run(tid, p, tp.role, tp.slot); rows++; }
+  }
+  for (const r of saved.roster) {
+    const p = pid(r.player_name);
+    if (p != null) { insRoster.run(r.session_id, p, r.role, r.slot); rows++; }
+  }
+  if (saved.teams.length || saved.roster.length) {
+    console.log(`Preserved across reseed: ${saved.teams.length} team(s), ${saved.roster.length} roster row(s)${skipped ? ` (skipped ${skipped} missing player(s))` : ''}.`);
+  }
+}
+
 // (Re)build the database from the source data files.
 function seedDb() {
   const db = new DatabaseSync(DB_PATH);
   // create tables first (so this works on a fresh DB too), then migrate any
-  // pre-existing tables to the current schema, then clear the data.
+  // pre-existing tables to the current schema.
   db.exec(fs.readFileSync(INIT_PATH, 'utf8'));
   migrate(db);
+  // Snapshot the user's archive + in-progress run before wiping, and restore them
+  // afterwards by NAME (player ids are rebuilt on reseed). Trophies already store
+  // names (not ids) and are left untouched.
+  const saved = snapshotUserData(db);
   db.exec('DELETE FROM team_players; DELETE FROM teams; DELETE FROM roster; DELETE FROM state; DELETE FROM players;');
 
   // --- load EPM: name -> {age, oepm, depm, epm}
@@ -105,6 +143,7 @@ function seedDb() {
   const r2 = (x) => Math.round(x * 100) / 100;
 
   let count = 0, realEpm = 0, realStats = 0, realAge = 0;
+  const newIdByName = new Map(); // normalized name -> fresh player id (for restore)
   db.exec('BEGIN');
   for (const line of fs.readFileSync(DATA_2K, 'utf8').trim().split('\n')) {
     const [name, pos, overallStr] = line.split('\t');
@@ -128,14 +167,20 @@ function seedDb() {
     } : estimateStats(overall);
 
     const { primary, secondary } = parsePositions(pos);
-    insert.run(name.trim(), primary, secondary, age, overall, epm, oepm, depm,
+    const info = insert.run(name.trim(), primary, secondary, age, overall, epm, oepm, depm,
       r2(s.pts), r2(s.trb), r2(s.ast), r2(s.stl), r2(s.blk), mpMap.get(key) || 0, r2(s.fgPct), r2(s.threePct), r2(s.ftPct));
+    newIdByName.set(key, info.lastInsertRowid);
 
     if (epmData) realEpm++;
     if (baseData) realStats++;
     if (baseData || epmData) realAge++;
     count++;
   }
+  db.exec('COMMIT');
+
+  // Rebuild the snapshotted teams/roster against the fresh player ids.
+  db.exec('BEGIN');
+  restoreUserData(db, saved, newIdByName);
   db.exec('COMMIT');
   db.close();
 
