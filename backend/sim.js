@@ -24,8 +24,8 @@ const TOTAL_MINUTES = 240;
 const REROLLS_PER_RUN = 5;
 const HARD_MODE_BUDGET = 400;  // hard mode salary cap
 const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0 = off)
-const PTS_SHARE_EXP = 1.2;     // scoring-share exponent: >1 lets stars keep a bigger slice (usage)
-const OVERALL_SHARE_EXP = 0.5; // overall weighting: higher-overall players get a bigger scoring slice
+const PTS_SHARE_EXP = 1.5;     // scoring-share exponent: >1 lets a team's lead scorer pull away (lottery lead scorer ~20 ppg, vs 16 at 1.2)
+const OVERALL_SHARE_EXP = 0.7; // overall weighting: higher-overall players get a bigger scoring slice
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
 const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive), but not so steep that a strong Finals opponent is unbeatable. Player title odds peak here (~15%) across the realistic opponent path.
