@@ -28,7 +28,7 @@ const PTS_SHARE_EXP = 1.2;     // scoring-share exponent: >1 lets stars keep a b
 const OVERALL_SHARE_EXP = 0.5; // overall weighting: higher-overall players get a bigger scoring slice
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
-const SCALE_PO = 12;           // playoffs: SAME per-game curve as regular season. Best-of-7 already makes the better team far more likely to win (an 80% per-game favourite wins ~98% of series), so a steeper per-game scale would double-amplify and erase all upset potential.
+const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive), but not so steep that a strong Finals opponent is unbeatable. Player title odds peak here (~15%) across the realistic opponent path.
 const HOME_ADV = 2.0;          // home-court strength boost (rating points) — ~60% home win rate
 const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // = HOME_ADV now; kept as a ratio so the home rate stays ~60% in both phases
 const AI_TEAM_BAND = 8;        // talent spread around an AI team's target strength (rating units); larger = more role players mixed in
@@ -246,7 +246,7 @@ function buildLeague(db, userTeam, config) {
   // players first, and every roster is exclusive (no player appears on two teams).
   const usedIds = new Set(draftedIds);
   const aiTeams = [];
-  const minS = 70, maxS = 90; // league strength range; weighted sampling can now actually reach the extremes
+  const minS = 70, maxS = 88; // league strength range; cap slightly below the player's ceiling (~90) so a well-built team can still top the league
   for (let i = 0; i < 29; i++) {
     const target = maxS - (maxS - minS) * (i / 28);
     const players = generateAITeam(db, usedIds, target);
