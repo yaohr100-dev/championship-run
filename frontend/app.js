@@ -335,19 +335,22 @@ function positionDiscount(natural, slot, secondary) {
 }
 // Sigmoid minutes model (mirrors the backend sim.js minutesWeight, regular season).
 const MP_A = 7.5, MP_B = 33.5, MP_MU = 76.5, MP_S = 4;
+const BENCH_MINUTES_RATIO = 0.75; // mirrors backend sim.js
 function minutesWeight(rating) {
   return MP_A + (MP_B - MP_A) / (1 + Math.exp(-(rating - MP_MU) / MP_S));
 }
 // Compute team strength (mirrors the backend teamStrength formula) from a roster
 // and the current starter/slot assignments, so the lineup screen can show it live.
-function computeStrength(roster, starters) {
+// `ignoreBench` (draft preview) treats everyone as a starter, since no lineup is set.
+function computeStrength(roster, starters, ignoreBench = false) {
   let num = 0, den = 0;
   for (const p of roster) {
     const r = p.overall + p.epm * 0.5;
-    const w = minutesWeight(r);
+    let w = minutesWeight(r);
     let disc = 1.0;
     const s = starters.find((x) => x.playerId === p.id);
     if (s) disc = positionDiscount(p.position, s.slot, p.position2);
+    else if (!ignoreBench) w *= BENCH_MINUTES_RATIO;
     num += r * disc * w;
     den += w;
   }
@@ -881,7 +884,7 @@ async function renderDraftRoster() {
   const posCount = {};
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needs = ['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]);
-  const strength = computeStrength(roster, []);
+  const strength = computeStrength(roster, [], true);
   box.innerHTML = `
     <div class="roster-head">Your roster <span class="muted">(${roster.length}/10)</span>
       <span class="strength-inline">· 💪 ${strength.toFixed(1)}</span>

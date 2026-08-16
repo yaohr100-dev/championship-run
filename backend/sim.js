@@ -32,6 +32,7 @@ const SCALE_PO = 8;            // playoffs: steeper than the regular season (mor
 const HOME_ADV = 2.0;          // home-court strength boost (rating points) — ~60% home win rate
 const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // = HOME_ADV now; kept as a ratio so the home rate stays ~60% in both phases
 const AI_TEAM_BAND = 8;        // talent spread around an AI team's target strength (rating units); larger = more role players mixed in
+const BENCH_MINUTES_RATIO = 0.75; // bench players play this fraction of their ability-driven minutes, so lineup choice affects team strength
 const TEAMS_PER_CONF = 15;
 
 function openDb() {
@@ -84,11 +85,18 @@ function positionDiscount(natural, slot, secondary) {
 
 // 球队实力 = 时间加权平均 of (实力值 × 位置折扣)
 // `players` entries have { position, overall, epm, role, slot }
+// Minutes are ability-driven (minutesWeight), scaled by BENCH_MINUTES_RATIO for bench
+// players so WHO you start (vs bench) actually moves team strength.
+function roleMinutes(p, topHeavy = false) {
+  const w = minutesWeight(powerRating(p), topHeavy);
+  return p.role === 'starter' ? w : w * BENCH_MINUTES_RATIO;
+}
+
 function teamStrength(players, topHeavy = false) {
   let num = 0, den = 0;
   for (const p of players) {
     const r = powerRating(p);
-    const w = minutesWeight(r, topHeavy);
+    const w = roleMinutes(p, topHeavy);
     const disc = p.role === 'starter' && p.slot ? positionDiscount(p.position, p.slot, p.position2) : 1.0;
     num += r * disc * w;
     den += w;
@@ -438,7 +446,7 @@ function computeAwards(teams) {
 function teamForm(players, topHeavy = false) {
   let num = 0, den = 0;
   for (const p of players) {
-    const w = minutesWeight(powerRating(p), topHeavy);
+    const w = roleMinutes(p, topHeavy);
     num += formFactor(p.age, false) * w;
     den += w;
   }
@@ -550,7 +558,7 @@ function allocateStats(players, teamScore, topHeavy = false) {
   const rows = players.map(p => {
     const f = formFactor(p.age, topHeavy);
     const disc = p.role === 'starter' && p.slot ? positionDiscount(p.position, p.slot, p.position2) : 1.0;
-    const simMin = minutesWeight(powerRating(p), topHeavy); // simulated minutes (sigmoid)
+    const simMin = roleMinutes(p, topHeavy); // simulated minutes (sigmoid, bench-scaled)
     const realMp = p.mp > 0 ? p.mp : simMin;               // real MP, sigmoid fallback
     return { p, f, disc, simMin, realMp };
   });

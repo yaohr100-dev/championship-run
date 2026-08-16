@@ -63,12 +63,13 @@ The user should understand how frontend, backend, database and APIs work togethe
 
 ## Lineup & strength model
 - Player manually picks 5 starters and assigns each to a position slot (PG/SG/SF/PF/C).
-- The remaining 5 players are bench. Playing time is NOT fixed by role: minutes are ability-driven (see Formulas), so a high-ability bench player earns starter-like minutes.
+- The remaining 5 players are bench. Playing time is NOT fixed by role: minutes are ability-driven (see Formulas), so a high-ability bench player earns starter-like minutes — but bench players play at a reduced share (BENCH_MINUTES_RATIO = 0.75), so who you start vs bench does move team strength.
 - Position mismatch discount (starter's natural position vs slot):
   - same position: 100%
   - 1 step off (e.g. PG->SG, SG->SF): 97.5%
   - 2 steps off (e.g. PG->SF, C->SF): 95%
   - 3+ steps off (e.g. PG->C): 90%
+- The mismatch discount (min 90%) is smaller than the bench penalty (75%), so starting an out-of-position star is a real trade-off: a 1-step misfit (97.5%) beats benching them (75%), but a 3-step misfit may not.
 - Strength = overall + EPM; per-game stats do not affect winning.
 
 ## League & teams
@@ -108,7 +109,7 @@ The user should understand how frontend, backend, database and APIs work togethe
 ## Formulas (structure; coefficients calibrated once 2K data arrives)
 - Player power rating (实力值) = 2K overall (primary) + EPM x 0.5 (adjustment), kept on a 0-99 scale. Per-game stats do NOT affect winning.
 - Terminology: "Overall" = 2K rating; "Rating" = 实力值 (computed); "Strength" = team-level average.
-- Minutes weight w_i = max(0, 实力值_i - 55) (ability-driven, not a fixed starter/bench split); minutes_i = 240 x w_i / sum(w_i).
+- Minutes weight w_i = max(0, 实力值_i - 55) (ability-driven, not a fixed starter/bench split); minutes_i = 240 x w_i / sum(w_i). Bench players' minutes are scaled by BENCH_MINUTES_RATIO (0.75), so starters carry more weight.
 - Team strength = sum(实力值_i x position_discount_i x w_i) / sum(w_i) (a minutes-weighted average).
 - Per-game win probability = 1 / (1 + 10^((opponent - you)/scale)); the regular season uses a flatter curve (larger scale) than the playoffs.
 - Team score = f(team strength), a curve with diminishing returns; range 90-140, concentrated 105-125; the winner scores more than the loser.
