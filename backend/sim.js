@@ -28,7 +28,7 @@ const PTS_SHARE_EXP = 1.2;     // scoring-share exponent: >1 lets stars keep a b
 const OVERALL_SHARE_EXP = 0.5; // overall weighting: higher-overall players get a bigger scoring slice
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
-const SCALE_PO = 7;            // playoffs: steeper (better team wins more reliably)
+const SCALE_PO = 5;            // playoffs: steeper (better team wins more reliably)
 const TEAMS_PER_CONF = 15;
 
 function openDb() {

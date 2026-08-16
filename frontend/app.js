@@ -311,13 +311,18 @@ function positionDiscount(natural, slot, secondary) {
   if (d === 2) return 0.95;
   return 0.9;
 }
+// Sigmoid minutes model (mirrors the backend sim.js minutesWeight, regular season).
+const MP_A = 7.5, MP_B = 33.5, MP_MU = 76.5, MP_S = 4;
+function minutesWeight(rating) {
+  return MP_A + (MP_B - MP_A) / (1 + Math.exp(-(rating - MP_MU) / MP_S));
+}
 // Compute team strength (mirrors the backend teamStrength formula) from a roster
 // and the current starter/slot assignments, so the lineup screen can show it live.
 function computeStrength(roster, starters) {
   let num = 0, den = 0;
   for (const p of roster) {
     const r = p.overall + p.epm * 0.5;
-    const w = Math.max(0, r - 55);
+    const w = minutesWeight(r);
     let disc = 1.0;
     const s = starters.find((x) => x.playerId === p.id);
     if (s) disc = positionDiscount(p.position, s.slot, p.position2);
