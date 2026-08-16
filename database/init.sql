@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS players (
   ast REAL NOT NULL,
   stl REAL NOT NULL,
   blk REAL NOT NULL,
+  mp REAL NOT NULL DEFAULT 0,   -- real per-game minutes (from mp.txt); 0 = estimate
   fg_pct REAL NOT NULL,
   three_pct REAL NOT NULL,
   ft_pct REAL NOT NULL

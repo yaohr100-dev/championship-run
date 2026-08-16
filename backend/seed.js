@@ -17,6 +17,7 @@ const DATA_EPM = path.join(DB_DIR, 'epm.txt');
 const DATA_BASE = path.join(DB_DIR, 'base_stats.txt');
 const DATA_BASE_LOW = path.join(DB_DIR, 'base_stats_low.txt');
 const DATA_BASE_STARS = path.join(DB_DIR, 'base_stats_stars.txt');
+const DATA_MP = path.join(DB_DIR, 'mp.txt');
 
 function normalize(name) {
   return (name || '')
@@ -28,11 +29,32 @@ function normalize(name) {
     .replace(/\s+/g, ' ').trim();
 }
 
+// name -> real per-game minutes (from mp.txt)
+function loadMp() {
+  const map = new Map();
+  if (!fs.existsSync(DATA_MP)) return map;
+  for (const line of fs.readFileSync(DATA_MP, 'utf8').trim().split('\n')) {
+    const i = line.lastIndexOf('|');
+    if (i < 0) continue;
+    map.set(normalize(line.slice(0, i)), parseFloat(line.slice(i + 1)));
+  }
+  return map;
+}
+
+// Fringe players with no MP data — excluded from the player pool entirely.
+const DROP_PLAYERS = new Set([
+  'jaden springer', 'jules bernard', 'kevon harris', 'jackson rowe',
+  'kyle mangas', 'tyreke key', 'malik williams', 'gabe mcglothan',
+  'trevon scott', 'thomas sorber', 'tamar bates',
+]);
+
 // (Re)build the database from the source data files.
 function seedDb() {
   const db = new DatabaseSync(DB_PATH);
-  // create tables first (so this works on a fresh DB too), then clear any existing data
+  // create tables first (so this works on a fresh DB too), then migrate any
+  // pre-existing tables to the current schema, then clear the data.
   db.exec(fs.readFileSync(INIT_PATH, 'utf8'));
+  migrate(db);
   db.exec('DELETE FROM team_players; DELETE FROM teams; DELETE FROM roster; DELETE FROM state; DELETE FROM players;');
 
   // --- load EPM: name -> {age, oepm, depm, epm}
@@ -50,6 +72,9 @@ function seedDb() {
       baseMap.set(normalize(name), { age: +age, pts: +pts, trb: +trb, ast: +ast, stl: +stl, blk: +blk, fgPct: +fgPct, threePct: +threePct, ftPct: +ftPct });
     }
   }
+
+  // --- load MP: name -> real per-game minutes
+  const mpMap = loadMp();
 
   // --- fallback estimates from overall (for players missing from base stats)
   function estimateStats(o) {
@@ -73,8 +98,8 @@ function seedDb() {
 
   const insert = db.prepare(`
     INSERT INTO players
-      (name, position, position2, age, overall, epm, oepm, depm, pts, trb, ast, stl, blk, fg_pct, three_pct, ft_pct)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (name, position, position2, age, overall, epm, oepm, depm, pts, trb, ast, stl, blk, mp, fg_pct, three_pct, ft_pct)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const r2 = (x) => Math.round(x * 100) / 100;
@@ -85,6 +110,7 @@ function seedDb() {
     const [name, pos, overallStr] = line.split('\t');
     const overall = +overallStr;
     const key = normalize(name);
+    if (DROP_PLAYERS.has(key)) continue; // no-MP fringe players
 
     const epmData = epmMap.get(key);
     if (!epmData) continue; // drop players with no EPM (Free Agents / never played enough)
@@ -103,7 +129,7 @@ function seedDb() {
 
     const { primary, secondary } = parsePositions(pos);
     insert.run(name.trim(), primary, secondary, age, overall, epm, oepm, depm,
-      r2(s.pts), r2(s.trb), r2(s.ast), r2(s.stl), r2(s.blk), r2(s.fgPct), r2(s.threePct), r2(s.ftPct));
+      r2(s.pts), r2(s.trb), r2(s.ast), r2(s.stl), r2(s.blk), mpMap.get(key) || 0, r2(s.fgPct), r2(s.threePct), r2(s.ftPct));
 
     if (epmData) realEpm++;
     if (baseData) realStats++;
@@ -131,17 +157,30 @@ function migrate(db) {
     db.exec("INSERT INTO state (session_id, key, value) SELECT 'default', key, value FROM state_old");
     db.exec('DROP TABLE state_old');
   }
+  if (!has('players', 'mp')) db.exec('ALTER TABLE players ADD COLUMN mp REAL NOT NULL DEFAULT 0');
+}
+
+// Fill in real MP for any players seeded before the mp column existed.
+function backfillMp(db) {
+  const mpMap = loadMp();
+  const upd = db.prepare('UPDATE players SET mp = ? WHERE id = ?');
+  let n = 0;
+  for (const p of db.prepare('SELECT id, name FROM players WHERE mp IS NULL OR mp = 0').all()) {
+    const mp = mpMap.get(normalize(p.name));
+    if (mp != null) { upd.run(mp, p.id); n++; }
+  }
+  return n;
 }
 
 // Seed only if the players table is empty (used on first deploy / fresh volume).
 function ensureSeeded() {
   const db = new DatabaseSync(DB_PATH);
   db.exec(fs.readFileSync(INIT_PATH, 'utf8')); // ensure tables exist (idempotent)
-  migrate(db);                                // add session_id to any pre-existing tables
+  migrate(db);                                // add session_id/mp to any pre-existing tables
   let count = 0;
   try { count = db.prepare('SELECT COUNT(*) c FROM players').get().c; } catch {}
-  db.close();
-  if (count === 0) seedDb();
+  if (count === 0) { db.close(); seedDb(); }
+  else { const n = backfillMp(db); db.close(); if (n) console.log(`Backfilled mp for ${n} players.`); }
 }
 
 module.exports = { seedDb, ensureSeeded, normalize };

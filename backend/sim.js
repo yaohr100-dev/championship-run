@@ -9,7 +9,14 @@ const DB_PATH = dbPath();
 
 // ---- constants (calibratable) ----
 const EPM_COEF = 0.5;          // 实力值 = overall + epm * 0.5
-const MINUTES_FLOOR = 55;      // 时间权重 = max(0, rating - 55)
+// Sigmoid minutes model, fitted to real MP data (fit-mp.js):
+//   mp(rating) = MP_A + (MP_B - MP_A) / (1 + exp(-(rating - MP_MU) / s))
+// Playoffs use a steeper curve (smaller s) so stars/top-8 get a bigger share.
+const MP_A = 7.5;
+const MP_B = 33.5;
+const MP_MU = 76.5;
+const MP_S = 4;    // regular season
+const MP_S_PO = 3; // playoffs (top-heavy)
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 const ROSTER_SIZE = 10;
 const STARTER_COUNT = 5;
@@ -19,7 +26,6 @@ const HARD_MODE_BUDGET = 400;  // hard mode salary cap
 const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0 = off)
 const PTS_SHARE_EXP = 1.2;     // scoring-share exponent: >1 lets stars keep a bigger slice (usage)
 const OVERALL_SHARE_EXP = 0.5; // overall weighting: higher-overall players get a bigger scoring slice
-const TOP_HEAVY_EXP = 1.5;    // playoff minutes curve: (rating-55)^1.5 (favours starters/top-8)
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
 const SCALE_PO = 7;            // playoffs: steeper (better team wins more reliably)
@@ -56,9 +62,8 @@ function playerSalary(overall) {
 }
 
 function minutesWeight(rating, topHeavy = false) {
-  const x = Math.max(0, rating - MINUTES_FLOOR);
-  // topHeavy (playoffs) concentrates minutes more on the best players
-  return topHeavy ? Math.pow(x, TOP_HEAVY_EXP) : x;
+  const s = topHeavy ? MP_S_PO : MP_S;
+  return MP_A + (MP_B - MP_A) / (1 + Math.exp(-(rating - MP_MU) / s));
 }
 
 function positionDistance(a, b) {
@@ -460,8 +465,9 @@ function allocateStats(players, teamScore, topHeavy = false) {
   const rows = players.map(p => {
     const f = formFactor(p.age, topHeavy);
     const disc = p.role === 'starter' && p.slot ? positionDiscount(p.position, p.slot, p.position2) : 1.0;
-    const benchAdj = p.role === 'starter' ? 1 : 0.6; // bench plays fewer minutes (counting stats)
-    return { p, f, disc, benchAdj };
+    const simMin = minutesWeight(powerRating(p), topHeavy); // simulated minutes (sigmoid)
+    const realMp = p.mp > 0 ? p.mp : simMin;               // real MP, sigmoid fallback
+    return { p, f, disc, simMin, realMp };
   });
 
   const score = Math.round(teamScore);
@@ -473,10 +479,14 @@ function allocateStats(players, teamScore, topHeavy = false) {
   // term, so a defensive specialist (high overall, low pts) isn't over-inflated.
   const pts = allocateInteger(rows.map(x => Math.pow(Math.max(0.1, x.p.pts), PTS_SHARE_EXP) * Math.pow(x.p.overall, OVERALL_SHARE_EXP) * x.f * x.disc), remaining);
   for (let i = 0; i < pts.length; i++) pts[i] += minPts;
-  const trb = allocateInteger(rows.map(x => x.p.trb * x.f * x.benchAdj), teamStatTotal(44, 3.9));
-  const ast = allocateInteger(rows.map(x => x.p.ast * x.f * x.benchAdj), teamStatTotal(27, 3.3));
-  const stl = allocateRandom(rows.map(x => x.p.stl * x.f * x.benchAdj), teamStatTotal(9, 1.5));
-  const blk = allocateRandom(rows.map(x => x.p.blk * x.f * x.benchAdj), teamStatTotal(5, 0.8));
+  // counting stats scale with simulated minutes relative to real minutes
+  // (per-minute rate × simulated minutes), so box-score aligns with who the
+  // minutes model actually plays — replacing the old binary bench penalty.
+  const minShare = (x) => (x.simMin / x.realMp) * x.f;
+  const trb = allocateInteger(rows.map(x => x.p.trb * minShare(x)), teamStatTotal(44, 3.9));
+  const ast = allocateInteger(rows.map(x => x.p.ast * minShare(x)), teamStatTotal(27, 3.3));
+  const stl = allocateRandom(rows.map(x => x.p.stl * minShare(x)), teamStatTotal(9, 1.5));
+  const blk = allocateRandom(rows.map(x => x.p.blk * minShare(x)), teamStatTotal(5, 0.8));
 
   return rows.map((x, i) => ({
     name: x.p.name,
