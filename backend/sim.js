@@ -28,9 +28,10 @@ const PTS_SHARE_EXP = 1.2;     // scoring-share exponent: >1 lets stars keep a b
 const OVERALL_SHARE_EXP = 0.5; // overall weighting: higher-overall players get a bigger scoring slice
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
-const SCALE_PO = 5;            // playoffs: steeper (better team wins more reliably). Best-of-7 already makes favourites near-certain; scale 4-9 differ <2% on series outcomes.
-const HOME_ADV = 2.0;          // regular-season home-court strength boost (rating points) — ~60% home win rate
-const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // playoffs: same home win rate as regular season (~60%), scaled to the steeper curve
+const SCALE_PO = 12;           // playoffs: SAME per-game curve as regular season. Best-of-7 already makes the better team far more likely to win (an 80% per-game favourite wins ~98% of series), so a steeper per-game scale would double-amplify and erase all upset potential.
+const HOME_ADV = 2.0;          // home-court strength boost (rating points) — ~60% home win rate
+const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // = HOME_ADV now; kept as a ratio so the home rate stays ~60% in both phases
+const AI_TEAM_BAND = 8;        // talent spread around an AI team's target strength (rating units); larger = more role players mixed in
 const TEAMS_PER_CONF = 15;
 
 function openDb() {
@@ -138,6 +139,31 @@ function draftCandidates(db) {
 }
 
 // ---- AI team generation ----
+
+// Weighted sample (without replacement) of `n` players, favouring ratings near
+// `center` (a Gaussian preference). This lets each AI team tilt toward its target
+// strength — strong teams pull the top talent, weak teams pull the bottom — instead
+// of every team regressing to the pool median. `band` controls how much a team's
+// talent spreads around its center (a star-plus-role-players shape vs a flat roster).
+function weightedSampleByRating(list, center, band, n) {
+  const arr = [...list];
+  const out = [];
+  while (out.length < n && arr.length) {
+    const weights = arr.map((p) => {
+      const d = powerRating(p) - center;
+      return Math.exp(-(d * d) / (2 * band * band));
+    });
+    const total = weights.reduce((s, w) => s + w, 0);
+    if (total <= 0) { out.push(arr.shift()); continue; }
+    let pick = Math.random() * total;
+    let idx = 0;
+    for (let i = 0; i < arr.length; i++) { pick -= weights[i]; if (pick <= 0) { idx = i; break; } }
+    out.push(arr[idx]);
+    arr.splice(idx, 1);
+  }
+  return out;
+}
+
 // Build one 10-player AI team from the pool (excluding the user's drafted players AND
 // any players already assigned to another AI team), position-balanced, whose team
 // strength is close to `target`. Returns array of player rows with role/slot.
@@ -145,11 +171,11 @@ function generateAITeam(db, excludeIds, target) {
   const pool = db.prepare('SELECT * FROM players').all().filter(p => !excludeIds.has(p.id));
   let best = null, bestDiff = Infinity;
   for (let attempt = 0; attempt < 60; attempt++) {
-    // pick 2 per position = 10 players, position balanced
+    // pick 2 per position = 10 players, tilted toward the target strength
     const picked = [];
     for (const pos of POSITIONS) {
       const atPos = pool.filter(p => p.position === pos);
-      picked.push(...shuffle(atPos).slice(0, 2));
+      picked.push(...weightedSampleByRating(atPos, target, AI_TEAM_BAND, 2));
     }
     const team = shuffle(picked).slice(0, ROSTER_SIZE);
     // assign best 5 (by 2K overall) to their own position slot (starters), rest bench;
@@ -220,7 +246,7 @@ function buildLeague(db, userTeam, config) {
   // players first, and every roster is exclusive (no player appears on two teams).
   const usedIds = new Set(draftedIds);
   const aiTeams = [];
-  const minS = 72, maxS = 88; // calibratable ("2 per position" sampling tops out ~88)
+  const minS = 70, maxS = 90; // league strength range; weighted sampling can now actually reach the extremes
   for (let i = 0; i < 29; i++) {
     const target = maxS - (maxS - minS) * (i / 28);
     const players = generateAITeam(db, usedIds, target);
@@ -578,5 +604,5 @@ module.exports = {
   draftCandidates, generateAITeam, simulateSeason, buildLeague, buildSchedule, simulateGames, mergeStandings, finalizeSeason,
   simulateMatchup, simulateSeasonGame,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
-  HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO,
+  HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
 };
