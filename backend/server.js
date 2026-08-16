@@ -201,6 +201,7 @@ app.post('/api/roster', (req, res) => {
   }
 
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), playerId, 'bench', null);
+  if (count + 1 >= sim.ROSTER_SIZE) setState('phase', 'lineup');
   res.json({ ok: true, rosterCount: count + 1 });
 });
 
@@ -223,14 +224,17 @@ app.post('/api/lineup', (req, res) => {
     db.prepare("UPDATE roster SET role = 'starter', slot = ? WHERE player_id = ? AND session_id = ?").run(s.slot, s.playerId, currentSession());
   }
   upsertCurrentTeam();
+  setState('phase', 'preseason');
   res.json({ ok: true });
 });
 
 app.post('/api/reset', (req, res) => {
-  const { difficulty } = req.body || {};
+  const { difficulty, mode } = req.body || {};
   db.prepare('DELETE FROM roster WHERE session_id = ?').run(currentSession());
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
   if (difficulty === 'hard') setState('difficulty', 'hard');
+  setState('mode', mode === 'blind' ? 'blind' : 'open');
+  setState('phase', 'draft');
   res.json({ ok: true });
 });
 
@@ -371,7 +375,7 @@ function finishSeason(res, config, result, playerAverages) {
 
   upsertCurrentTeam();
 
-  res.json({
+  const report = {
     teamName: config.teamName,
     conference: conf,
     replacedTeam: config.replacedTeam,
@@ -381,7 +385,10 @@ function finishSeason(res, config, result, playerAverages) {
     playerAverages,
     awards: result.awards,
     madePlayoffs,
-  });
+  };
+  setState('phase', 'season');
+  setState('season_report', JSON.stringify(report));
+  res.json(report);
 }
 
 // Full season in one shot (used by the test scripts).
@@ -414,7 +421,7 @@ app.post('/api/season/start', (req, res) => {
   const me = standings.find((t) => t.isUser);
   const east = standings.filter((t) => t.conf === 'East').sort((a, b) => b.wins - a.wins);
   const west = standings.filter((t) => t.conf === 'West').sort((a, b) => b.wins - a.wins);
-  res.json({
+  const report = {
     games: HALF_GAMES,
     wins: me.wins,
     losses: me.losses,
@@ -422,7 +429,10 @@ app.post('/api/season/start', (req, res) => {
     playerAverages: formatUserAverages(Object.values(me.acc), userTeam, HALF_GAMES),
     east: east.map((t) => teamView(t, true)),
     west: west.map((t) => teamView(t, true)),
-  });
+  };
+  setState('phase', 'midseason');
+  setState('midseason_report', JSON.stringify(report));
+  res.json(report);
 });
 
 // Second half: simulate the remaining games (using the possibly-adjusted lineup).
@@ -838,6 +848,7 @@ app.post('/api/playoffs/start', (req, res) => {
 
   const state = { round: 1, east, west, rounds: [], champion: null, userEliminated: false, userPlayoffTotals: { games: 0, players: {} } };
   setState('playoff_state', JSON.stringify(state));
+  setState('phase', 'playoffs');
 
   res.json({
     round: 1,
@@ -901,6 +912,7 @@ app.post('/api/playoffs/round', (req, res) => {
   }
 
   setState('playoff_state', JSON.stringify(state));
+  if (state.champion) setState('phase', 'finished');
 
   // when the run is over (champion or eliminated), snapshot the playoff result + user averages
   if (state.champion || state.userEliminated) {
@@ -934,6 +946,48 @@ app.post('/api/playoffs/round', (req, res) => {
 app.get('/api/playoffs/state', (req, res) => {
   const raw = getState('playoff_state');
   res.json(raw ? JSON.parse(raw) : null);
+});
+
+// Render-ready view of the current playoff bracket, for resuming mid-playoffs.
+function playoffsView() {
+  const raw = getState('playoff_state');
+  if (!raw) return null;
+  const state = JSON.parse(raw);
+  return {
+    round: state.round,
+    matchups: matchupsFor(state).map((m) => ({ conf: m.conf, a: teamView(m.a, true), b: teamView(m.b, true) })),
+    rounds: state.rounds,
+    nextMatchups: state.champion ? [] : matchupsFor(state).map((m) => ({ conf: m.conf, a: teamView(m.a), b: teamView(m.b) })),
+    champion: state.champion,
+    userEliminated: state.userEliminated,
+    userEliminatedRound: state.userEliminatedRound || null,
+  };
+}
+
+// Where am I in the current run? (used by the "Continue last run" button)
+app.get('/api/resume', (req, res) => {
+  const phase = getState('phase') || 'none';
+  const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+  const out = {
+    phase,
+    teamName: getState('team_name') || null,
+    conference: getState('conference') || null,
+    replacedTeam: getState('replaced_team') || null,
+    difficulty: getState('difficulty') === 'hard' ? 'hard' : 'normal',
+    mode: getState('mode') === 'blind' ? 'blind' : 'open',
+    rosterCount,
+    rosterSize: sim.ROSTER_SIZE,
+  };
+  if (phase === 'midseason') {
+    const r = getState('midseason_report');
+    out.midseason = r ? JSON.parse(r) : null;
+  } else if (phase === 'season') {
+    const r = getState('season_report');
+    out.season = r ? JSON.parse(r) : null;
+  } else if (phase === 'playoffs') {
+    out.playoffs = playoffsView();
+  }
+  res.json(out);
 });
 
 // ---- result + career ----

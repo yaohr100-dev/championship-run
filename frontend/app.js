@@ -142,17 +142,85 @@ async function loadCareer() {
     : '<span class="muted">No history yet.</span>';
 }
 
-async function goHome() { show('home'); await loadCareer(); await loadSavedTeams(); await loadTrophies(); }
+async function goHome() { show('home'); await loadCareer(); await loadSavedTeams(); await loadTrophies(); await loadResume(); }
 
 $('new-draft').addEventListener('click', async () => {
   state.mode = document.querySelector('input[name=mode]:checked').value;
   state.difficulty = document.querySelector('input[name=difficulty]:checked').value;
-  await api('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ difficulty: state.difficulty }) });
+  await api('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ difficulty: state.difficulty, mode: state.mode }) });
   show('draft');
   await loadDraft();
 });
 
 $('home-btn').addEventListener('click', () => { goHome(); });
+
+// ---------- Continue last run ----------
+async function loadResume() {
+  try {
+    const r = await api('/api/resume');
+    if (!r || r.phase === 'none') { $('continue-panel').hidden = true; return; }
+    state.difficulty = r.difficulty;
+    state.mode = r.mode;
+    $('continue-summary').textContent = resumeLabel(r);
+    $('continue-panel').hidden = false;
+  } catch (e) { /* resume is best-effort */ }
+}
+
+function resumeLabel(r) {
+  const name = r.teamName || 'My Team';
+  switch (r.phase) {
+    case 'draft': return `${name} · Draft (${r.rosterCount}/${r.rosterSize} picked)`;
+    case 'lineup': return `${name} · Set your starting 5`;
+    case 'preseason': return `${name} · Ready for the regular season`;
+    case 'midseason': return `${name} · Mid-season (${r.midseason ? r.midseason.wins + '-' + r.midseason.losses : '?'})`;
+    case 'season': return `${name} · Season complete`;
+    case 'playoffs': return `${name} · Playoffs (round ${r.playoffs ? r.playoffs.round : '?'})`;
+    case 'finished': return `${name} · Season over — view result`;
+    default: return name;
+  }
+}
+
+$('continue-run').addEventListener('click', async () => {
+  try {
+    const r = await api('/api/resume');
+    state.mode = r.mode;
+    state.difficulty = r.difficulty;
+    state.hardMode = r.difficulty === 'hard';
+    if (r.conference) state.conference = r.conference;
+    if (r.replacedTeam) state.replacedTeam = r.replacedTeam;
+    switch (r.phase) {
+      case 'draft': show('draft'); await loadDraft(); break;
+      case 'lineup': show('lineup'); await loadLineup(); break;
+      case 'preseason': $('simulate-season').hidden = false; $('season-result').innerHTML = ''; show('season'); break;
+      case 'midseason': show('season'); renderMidSeason(r.midseason); break;
+      case 'season': show('season'); renderSeason(r.season); break;
+      case 'playoffs': resumePlayoffs(r.playoffs); break;
+      case 'finished': showResult(); break;
+      default: show('home');
+    }
+  } catch (e) { alert(e.message); }
+});
+
+function resumePlayoffs(p) {
+  if (!p) return show('home');
+  show('playoffs');
+  const matchups = p.matchups.map((m) => `
+    <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
+      <div class="series-teams">
+        <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map((x) => `${x.name} (${x.position}, ${x.overall})`).join('<br>')}</div></details>
+        <span class="vs">vs</span>
+        <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map((x) => `${x.name} (${x.position}, ${x.overall})`).join('<br>')}</div></details>
+      </div>
+    </div>`).join('');
+  let html = `<h3>Playoff Bracket</h3>${renderBracket(p.rounds, p.nextMatchups)}`;
+  if (p.userEliminated) html += `<p class="muted eliminated-note">You were eliminated in round ${p.userEliminatedRound}. The playoffs continue without you.</p>`;
+  html += `<h3>Round ${p.round}</h3><div class="bracket">${matchups}</div><button id="simulate-round" class="primary">Simulate Round ${p.round}</button>`;
+  $('playoffs-body').innerHTML = html;
+  $('simulate-round').addEventListener('click', async () => {
+    const j = await api('/api/playoffs/round', { method: 'POST' });
+    renderRoundResults(j);
+  });
+}
 
 // ---------- Draft ----------
 async function loadDraft() {
@@ -906,6 +974,7 @@ function renderMatchupResult(j) {
   try { await loadCareer(); } catch (e) { console.error('loadCareer', e); }
   try { await loadSavedTeams(); } catch (e) { console.error('loadSavedTeams', e); }
   try { await loadTrophies(); } catch (e) { console.error('loadTrophies', e); }
+  try { await loadResume(); } catch (e) { console.error('loadResume', e); }
 
   show('home');
 })();
