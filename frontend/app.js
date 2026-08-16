@@ -28,8 +28,9 @@ const halfBadge = (half) => (half === 'first' ? ' <span class="half-badge first"
 async function loadNbaTeams() {
   const { teams } = await api('/api/nba-teams');
   const sel = $('replace-team');
-  const east = teams.filter((t) => t.conf === 'East');
-  const west = teams.filter((t) => t.conf === 'West');
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const east = teams.filter((t) => t.conf === 'East').sort(byName);
+  const west = teams.filter((t) => t.conf === 'West').sort(byName);
   const group = (label, list) => {
     const og = document.createElement('optgroup');
     og.label = `${label} Conference`;
