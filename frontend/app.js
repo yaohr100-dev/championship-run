@@ -511,11 +511,18 @@ function tradeChecklist(players, label) {
 }
 
 async function doTrade(myPlayerIds, aiPlayerIds, msgEl, force = false) {
-  const r = await api('/api/trade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds, aiPlayerIds, force }) });
-  if (r.accepted) tradeNotice = '✅ ' + r.message;
-  msgEl.textContent = r.message || r.error;
-  msgEl.className = (r.accepted ? 'good' : 'bad') + ' trade-msg';
-  if (r.accepted) renderTradeUI();
+  try {
+    const r = await api('/api/trade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds, aiPlayerIds, force }) });
+    if (r.accepted) tradeNotice = '✅ ' + r.message;
+    msgEl.textContent = r.message || r.error;
+    msgEl.className = (r.accepted ? 'good' : 'bad') + ' trade-msg';
+    if (r.accepted) renderTradeUI();
+  } catch (e) {
+    // Surface backend rejections (e.g. "Not enough trade points") instead of letting
+    // the promise fail silently — that made the button look unresponsive.
+    msgEl.textContent = e.message;
+    msgEl.className = 'bad trade-msg';
+  }
 }
 
 function renderTradeUI() {
@@ -546,6 +553,8 @@ function renderTradeUI() {
     }));
     renderPropose(myRoster, aiPlayers, teams);
     renderShop(myRoster);
+  }).catch((e) => {
+    panel.innerHTML = `<p class="bad">Trade window failed to load: ${e.message}</p>`;
   });
 }
 
@@ -589,16 +598,21 @@ function renderShop(myRoster) {
   btn.addEventListener('click', async () => {
     const ids = myList.checked();
     if (!ids.length) { msg.textContent = 'Pick 1-3 players first.'; msg.className = 'bad trade-msg'; return; }
-    const j = await api('/api/trade/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds: ids }) });
-    offersBox.innerHTML = j.offers.length ? j.offers.map((o) => `
-      <div class="trade-offer">
-        <div class="trade-offer-head">${o.aiTeam} offers <span class="muted">(${o.aiTotal} OVR)</span></div>
-        <div class="muted">${o.aiPlayers.map((p) => `${p.name} (${p.overall})`).join(', ')}</div>
-        <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">Accept</button>
-      </div>`).join('') : '<p class="muted">No offers.</p>';
-    offersBox.querySelectorAll('.accept').forEach((b) => b.addEventListener('click', () => {
-      doTrade(JSON.parse(b.dataset.my), JSON.parse(b.dataset.ai), msg, true);
-    }));
+    try {
+      const j = await api('/api/trade/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds: ids }) });
+      offersBox.innerHTML = j.offers.length ? j.offers.map((o) => `
+        <div class="trade-offer">
+          <div class="trade-offer-head">${o.aiTeam} offers <span class="muted">(${o.aiTotal} OVR)</span></div>
+          <div class="muted">${o.aiPlayers.map((p) => `${p.name} (${p.overall})`).join(', ')}</div>
+          <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">Accept</button>
+        </div>`).join('') : '<p class="muted">No offers.</p>';
+      offersBox.querySelectorAll('.accept').forEach((b) => b.addEventListener('click', () => {
+        doTrade(JSON.parse(b.dataset.my), JSON.parse(b.dataset.ai), msg, true);
+      }));
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.className = 'bad trade-msg';
+    }
   });
   box.innerHTML = '';
   box.append(myList, btn, offersBox, msg);
@@ -625,6 +639,8 @@ function renderIncoming() {
       box.appendChild(div);
     }
     box.appendChild(msg);
+  }).catch((e) => {
+    box.innerHTML = `<p class="bad">Failed to load proposals: ${e.message}</p>`;
   });
 }
 
