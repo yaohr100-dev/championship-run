@@ -25,6 +25,7 @@ const REROLLS_PER_RUN = 5;
 const HARD_MODE_BUDGET = 400;  // hard mode salary cap
 const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0 = off)
 const PTS_SHARE_EXP = 1.5;     // scoring-share exponent: >1 lets a team's lead scorer pull away (lottery lead scorer ~20 ppg, vs 16 at 1.2)
+const PTS_SHARE_EXP_PO = 1.7;  // playoffs: stars carry a bit more usage (a star's average rises ~+2 ppg, matching real playoff usage)
 const OVERALL_SHARE_EXP = 0.7; // overall weighting: higher-overall players get a bigger scoring slice
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
@@ -567,10 +568,12 @@ function allocateStats(players, teamScore, topHeavy = false) {
   // every player scores at least 1 point, so a 0-point line can't conflict with FG%
   const minPts = 1;
   const remaining = Math.max(0, score - minPts * rows.length);
-  // Points are proportional to real scoring^PTS_SHARE_EXP × overall^OVERALL_SHARE_EXP
+  // Points are proportional to real scoring^ptsExp × overall^OVERALL_SHARE_EXP
   // (stars with high real scoring AND high overall get the biggest slice). No minutes
   // term, so a defensive specialist (high overall, low pts) isn't over-inflated.
-  const pts = allocateInteger(rows.map(x => Math.pow(Math.max(0.1, x.p.pts), PTS_SHARE_EXP) * Math.pow(x.p.overall, OVERALL_SHARE_EXP) * x.f * x.disc), remaining);
+  // In the playoffs the pts exponent rises slightly, so stars carry more usage.
+  const ptsExp = topHeavy ? PTS_SHARE_EXP_PO : PTS_SHARE_EXP;
+  const pts = allocateInteger(rows.map(x => Math.pow(Math.max(0.1, x.p.pts), ptsExp) * Math.pow(x.p.overall, OVERALL_SHARE_EXP) * x.f * x.disc), remaining);
   for (let i = 0; i < pts.length; i++) pts[i] += minPts;
   // counting stats scale with simulated minutes relative to real minutes
   // (per-minute rate × simulated minutes), so box-score aligns with who the
