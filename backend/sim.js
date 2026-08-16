@@ -305,10 +305,13 @@ function buildSchedule(teams) {
 }
 
 // Best box-score line in a single game (used for "player of the game").
+// Weighted close to real NBA Game Score: points dominate, rebounds/assists help,
+// steals/blocks minor. (A triple-double machine still wins most games, but a
+// teammate's scoring outburst can occasionally take it.)
 function gameStar(stats) {
   let best = null, bestScore = -Infinity;
   for (const s of stats) {
-    const score = s.pts + 1.2 * s.trb + 1.5 * s.ast + 2 * s.stl + 2 * s.blk;
+    const score = s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk;
     if (score > bestScore) { bestScore = score; best = s; }
   }
   return best ? best.name : null;
@@ -322,7 +325,7 @@ function simulateGames(teams, schedule, aiBonus) {
   const rows = teams.map((t) => {
     const s = strengthOf(t);
     const acc = {};
-    for (const p of t.players) acc[p.name] = { name: p.name, position: p.position, games: 0, pts: 0, trb: 0, ast: 0, stl: 0, blk: 0, epm: 0, depm: 0, fgPct: 0, threePct: 0, ftPct: 0 };
+    for (const p of t.players) acc[p.name] = { name: p.name, position: p.position, games: 0, pts: 0, trb: 0, ast: 0, stl: 0, blk: 0, epm: 0, depm: 0, fgPct: 0, threePct: 0, ftPct: 0, mvp: 0 };
     return { t, s, wins: 0, played: 0, gameLog: t.isUser ? [] : null, acc };
   });
 
@@ -345,8 +348,13 @@ function simulateGames(teams, schedule, aiBonus) {
     const homeWon = r.aWins;
     H.played++; A.played++;
     if (homeWon) H.wins++; else A.wins++;
-    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: gameStar(r.aStats) });
-    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: gameStar(r.bStats) });
+    const starA = gameStar(r.aStats);
+    const starB = gameStar(r.bStats);
+    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: starA });
+    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: starB });
+    // tally player-of-the-game for the user's team (mvp count)
+    if (H.gameLog && starA && H.acc[starA]) H.acc[starA].mvp++;
+    if (A.gameLog && starB && A.acc[starB]) A.acc[starB].mvp++;
     accumulate(H, r.aStats);
     accumulate(A, r.bStats);
   }
@@ -357,7 +365,7 @@ function simulateGames(teams, schedule, aiBonus) {
 // Merge two half-season results (same teams, same order) into one full season.
 // Player lists may differ between halves (trades), so merge the UNION of names.
 function mergeStandings(s1, s2, totalGames) {
-  const FIELDS = ['pts', 'trb', 'ast', 'stl', 'blk', 'epm', 'depm', 'fgPct', 'threePct', 'ftPct'];
+  const FIELDS = ['pts', 'trb', 'ast', 'stl', 'blk', 'epm', 'depm', 'fgPct', 'threePct', 'ftPct', 'mvp'];
   return s1.map((t1, i) => {
     const t2 = s2[i];
     const acc = {};
@@ -381,7 +389,7 @@ function finalizeSeason(standings, totalGames, leagueAvg) {
   for (const t of standings) {
     t.playerAverages = Object.values(t.acc).map((s) => {
       const g = s.games || totalGames; // per-player games (a traded-in player plays only one half)
-      return { name: s.name, position: s.position, half: s.half || 'full', pts: s.pts / g, trb: s.trb / g, ast: s.ast / g, stl: s.stl / g, blk: s.blk / g, epm: s.epm / g, depm: s.depm / g, fgPct: s.fgPct / g, threePct: s.threePct / g, ftPct: s.ftPct / g };
+      return { name: s.name, position: s.position, half: s.half || 'full', pts: s.pts / g, trb: s.trb / g, ast: s.ast / g, stl: s.stl / g, blk: s.blk / g, epm: s.epm / g, depm: s.depm / g, fgPct: s.fgPct / g, threePct: s.threePct / g, ftPct: s.ftPct / g, mvp: s.mvp };
     });
   }
   const east = standings.filter((t) => t.conf === 'East').sort((a, b) => b.wins - a.wins);

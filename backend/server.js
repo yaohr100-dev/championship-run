@@ -351,6 +351,7 @@ function formatUserAverages(entries, userTeam, div = 1) {
       half: a.half || 'full',
       pts: f1(a.pts / div), trb: f1(a.trb / div), ast: f1(a.ast / div), stl: f1(a.stl / div), blk: f1(a.blk / div),
       fgPct: f3(a.fgPct / div), threePct: f3(a.threePct / div), ftPct: f3(a.ftPct / div), epm: f1(a.epm / div),
+      mvp: a.mvp || 0,
     };
   }).sort((x, y) => y.pts - x.pts);
 }
