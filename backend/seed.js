@@ -7,9 +7,10 @@
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
 const path = require('path');
+const { dbPath } = require('./db-path');
 
 const DB_DIR = path.join(__dirname, '..', 'database');
-const DB_PATH = process.env.DB_PATH || path.join(DB_DIR, 'app.db');
+const DB_PATH = dbPath();
 const INIT_PATH = path.join(DB_DIR, 'init.sql');
 const DATA_2K = path.join(DB_DIR, '2k27_players.txt');
 const DATA_EPM = path.join(DB_DIR, 'epm.txt');
@@ -143,7 +144,7 @@ function ensureSeeded() {
   if (count === 0) seedDb();
 }
 
-module.exports = { seedDb, ensureSeeded };
+module.exports = { seedDb, ensureSeeded, normalize };
 
 // run directly (node seed.js) → force a full reseed
 if (require.main === module) {

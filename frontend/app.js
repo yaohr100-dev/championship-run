@@ -222,6 +222,34 @@ function resumePlayoffs(p) {
   });
 }
 
+// ---------- Back up / restore ----------
+$('export-save').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/export');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'championship-run-save.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    $('save-msg').textContent = 'Save exported.';
+  } catch (e) { $('save-msg').textContent = 'Export failed: ' + e.message; }
+});
+
+$('import-save-btn').addEventListener('click', () => $('import-save').click());
+$('import-save').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const r = await api('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    $('save-msg').textContent = 'Save restored.' + (r.skipped && r.skipped.length ? ' Skipped (not in player pool): ' + r.skipped.join(', ') : '');
+    ev.target.value = '';
+    await goHome();
+  } catch (e) { $('save-msg').textContent = 'Import failed: ' + e.message; }
+});
+
 // ---------- Draft ----------
 async function loadDraft() {
   const j = await api('/api/draft');

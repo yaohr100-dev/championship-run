@@ -2,10 +2,10 @@
 // Pure game logic on top of SQLite. The API (server.js) calls these.
 
 const { DatabaseSync } = require('node:sqlite');
-const path = require('path');
 const { currentSession } = require('./session');
+const { dbPath } = require('./db-path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'database', 'app.db');
+const DB_PATH = dbPath();
 
 // ---- constants (calibratable) ----
 const EPM_COEF = 0.5;          // 实力值 = overall + epm * 0.5

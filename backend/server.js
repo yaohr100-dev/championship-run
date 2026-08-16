@@ -1,13 +1,13 @@
 const express = require('express');
 const path = require('path');
 const sim = require('./sim');
-const { ensureSeeded } = require('./seed');
+const { ensureSeeded, normalize } = require('./seed');
 const { als, currentSession } = require('./session');
 
 const app = express();
 const PORT = 3000; // fixed port — Railway domain target port must match this
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // save files (~600KB) exceed the 100kb default
 
 // Scope every request to its own session (multi-user isolation).
 app.use((req, res, next) => {
@@ -1027,6 +1027,85 @@ app.get('/api/career', (req, res) => {
     dpoy: count('dpoy'),
     finalsMvps: count('finals_mvp'),
   });
+});
+
+// ---- back up / restore (cross-deployment save) ----
+// A save is everything scoped to this session except the global `players` seed
+// (which is rebuilt identically on every deploy). Player references are exported
+// by NAME, so a reseed that shifts auto-increment ids still matches on import.
+
+function playerNameById(id) {
+  const p = db.prepare('SELECT name FROM players WHERE id = ?').get(id);
+  return p ? p.name : null;
+}
+
+app.get('/api/export', (req, res) => {
+  const sid = currentSession();
+  const roster = db.prepare('SELECT player_id, role, slot FROM roster WHERE session_id = ?').all(sid)
+    .map((r) => ({ name: playerNameById(r.player_id), role: r.role, slot: r.slot }))
+    .filter((r) => r.name);
+  const state = {};
+  for (const s of db.prepare('SELECT key, value FROM state WHERE session_id = ?').all(sid)) state[s.key] = s.value;
+  const teams = db.prepare('SELECT id, name, results_json FROM teams WHERE session_id = ? ORDER BY id').all(sid)
+    .map((t) => ({
+      name: t.name,
+      results_json: t.results_json,
+      players: db.prepare('SELECT player_id, role, slot FROM team_players WHERE team_id = ?').all(t.id)
+        .map((p) => ({ name: playerNameById(p.player_id), role: p.role, slot: p.slot }))
+        .filter((p) => p.name),
+    }));
+  const trophies = db.prepare('SELECT type, player_name, team_name FROM trophies WHERE session_id = ?').all(sid);
+  res.json({ format: 1, exportedAt: new Date().toISOString(), data: { roster, state, teams, trophies } });
+});
+
+app.post('/api/import', (req, res) => {
+  const data = (req.body && req.body.data) || null;
+  if (!data) return res.status(400).json({ error: 'No save data provided' });
+  const sid = currentSession();
+
+  const byName = new Map(db.prepare('SELECT id, name FROM players').all().map((p) => [normalize(p.name), p.id]));
+  const resolveId = (name) => byName.get(normalize(name));
+  const skipped = new Set();
+
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM roster WHERE session_id = ?').run(sid);
+    db.prepare('DELETE FROM state WHERE session_id = ?').run(sid);
+    db.prepare('DELETE FROM team_players WHERE team_id IN (SELECT id FROM teams WHERE session_id = ?)').run(sid);
+    db.prepare('DELETE FROM teams WHERE session_id = ?').run(sid);
+    db.prepare('DELETE FROM trophies WHERE session_id = ?').run(sid);
+
+    const insRoster = db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)');
+    for (const r of (data.roster || [])) {
+      const id = resolveId(r.name);
+      if (id == null) { skipped.add(r.name); continue; }
+      insRoster.run(sid, id, r.role, r.slot);
+    }
+
+    const upsertState = db.prepare('INSERT INTO state (session_id, key, value) VALUES (?, ?, ?) ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value');
+    for (const [key, value] of Object.entries(data.state || {})) upsertState.run(sid, key, String(value));
+
+    const insTeam = db.prepare('INSERT INTO teams (session_id, name, results_json) VALUES (?, ?, ?)');
+    const insTP = db.prepare('INSERT INTO team_players (team_id, player_id, role, slot) VALUES (?, ?, ?, ?)');
+    for (const t of (data.teams || [])) {
+      const info = insTeam.run(sid, t.name, t.results_json || null);
+      for (const p of (t.players || [])) {
+        const id = resolveId(p.name);
+        if (id == null) { skipped.add(p.name); continue; }
+        insTP.run(info.lastInsertRowid, id, p.role, p.slot);
+      }
+    }
+
+    const insTrophy = db.prepare('INSERT INTO trophies (session_id, type, player_name, team_name) VALUES (?, ?, ?, ?)');
+    for (const tr of (data.trophies || [])) insTrophy.run(sid, tr.type, tr.player_name, tr.team_name);
+
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: e.message });
+  }
+
+  res.json({ ok: true, skipped: [...skipped] });
 });
 
 // serve the frontend static files (same origin, no CORS needed)

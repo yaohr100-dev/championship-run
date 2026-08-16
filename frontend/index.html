@@ -61,6 +61,19 @@
 
       <div class="panel section-gap">
         <details class="collapsible">
+          <summary>💾 Back up / Restore Save</summary>
+          <p class="muted" style="margin-top:8px">Download your save as a file to move it between devices or survive a server reset, then restore it here.</p>
+          <div class="row" style="margin-top:8px">
+            <button id="export-save" class="ghost">⬇ Export save (.json)</button>
+            <button id="import-save-btn" class="ghost">⬆ Import save</button>
+            <input id="import-save" type="file" accept=".json,application/json" hidden>
+          </div>
+          <div id="save-msg" class="muted" style="margin-top:8px"></div>
+        </details>
+      </div>
+
+      <div class="panel section-gap">
+        <details class="collapsible">
           <summary>🏆 Trophy Room</summary>
           <div id="career" class="muted" style="margin-bottom:8px">No history yet.</div>
           <div id="trophy-room" class="muted">No trophies yet. Win a championship!</div>
