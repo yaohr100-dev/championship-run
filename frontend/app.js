@@ -3,10 +3,11 @@ const $ = (id) => document.getElementById(id);
 
 const state = { mode: 'open', replacedTeam: null, conference: null, roster: [], libSort: 'overall', libDir: 'desc', libPos: '', playoffRound: 1 };
 
-// Blind mode hides ALL ability info (overall/EPM/rating/strength/salary). Position is
-// hidden during the draft (you haven't got the player yet) but revealed from lineup
-// onward (needed to assign slots); real per-game stats (pts/trb/ast) stay visible since
-// they're observed performance, not scouting info.
+// Blind mode hides ALL ability info (overall/EPM/rating/strength) and per-player
+// salary (which encodes overall). Position is hidden during the draft but revealed
+// from lineup onward (needed to assign slots); real per-game stats (pts/trb/ast)
+// stay visible since they're observed performance. Budget (spent/total) stays visible
+// — it's the player's own financial state, not scouting info.
 const isBlind = () => state.mode === 'blind';
 
 function show(id) {
@@ -919,7 +920,7 @@ async function renderDraftRoster() {
     <div class="roster-head">Your roster <span class="muted">(${roster.length}/10)</span>
       ${blind ? '' : `<span class="strength-inline">· 💪 ${strength.toFixed(1)}</span>`}
       ${blind ? '' : (needs.length ? `<span class="needs">· Need: ${needs.map((n) => `<b>${n}</b>`).join(' ')}</span>` : '<span class="good">· Positions covered ✓</span>')}
-      ${!blind && state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M spent</span>` : ''}
+      ${state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M spent</span>` : ''}
     </div>
     <div class="chip-list">${roster.map((p) => `<span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}</span>`).join('')}</div>`;
 }
