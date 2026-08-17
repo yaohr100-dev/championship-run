@@ -78,6 +78,8 @@ async function loadNbaTeams() {
 async function loadLibrary() {
   const q = new URLSearchParams({ sort: state.libSort, order: state.libDir });
   if (state.libPos) q.set('pos', state.libPos);
+  const sq = ($('lib-search')?.value || '').trim();
+  if (sq) q.set('q', sq);
   const { players } = await api(`/api/players?${q}`);
   renderLibrary(players);
 }
@@ -517,6 +519,7 @@ function gameLogHtml(games) {
       <span class="gl-vs muted">${g.home ? 'vs' : '@'}</span>
       <span class="gl-opp">${g.opp}</span>
       <span class="gl-score">${g.score}–${g.oppScore}</span>
+      ${g.streak && Math.abs(g.streak) >= 3 ? `<span class="gl-streak ${g.streak > 0 ? 'hot' : 'cold'}" title="${Math.abs(g.streak)}-game ${g.streak > 0 ? 'win' : 'loss'} streak">${g.streak > 0 ? '🔥' : '🥶'}${Math.abs(g.streak)}</span>` : ''}
       ${g.star ? `<span class="gl-star muted">⭐ ${g.star}</span>` : ''}
       ${g.milestone ? `<span class="gl-milestone">${g.milestone}</span>` : ''}
       ${g.injuries && g.injuries.length ? `<span class="gl-injury" title="${g.injuries.map(i => `${i.name} (${i.games} games)`).join(' · ')}">🚑 ${g.injuries.map(i => i.name.split(' ').pop()).join(', ')}</span>` : ''}
@@ -1096,6 +1099,12 @@ function renderMatchupResult(j) {
     });
   });
   $('lib-pos').addEventListener('change', (e) => { state.libPos = e.target.value; loadLibrary(); });
+  // name search with debounce (avoid a request per keystroke)
+  let searchTimer = null;
+  $('lib-search')?.addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadLibrary(), 250);
+  });
   $('matchup-details').addEventListener('toggle', () => {
     if ($('matchup-details').open && !matchupPlayers.length) initMatchup();
   });

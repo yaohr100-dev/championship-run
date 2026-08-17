@@ -369,6 +369,9 @@ details .starters, details .roster {
 .gl-opp { flex: 1; font-weight: 600; }
 .gl-score { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text); }
 .gl-star { font-size: 12px; white-space: nowrap; }
+.gl-streak { font-size: 12px; white-space: nowrap; font-weight: 800; }
+.gl-streak.hot { color: var(--gold); }
+.gl-streak.cold { color: var(--accent-2); }
 .gl-milestone { font-size: 12px; white-space: nowrap; color: var(--gold); font-weight: 700; }
 .gl-injury { font-size: 12px; white-space: nowrap; color: var(--bad); }
 

@@ -68,13 +68,16 @@ app.get('/api/nba-teams', (req, res) => res.json({ teams: sim.NBA_TEAMS }));
 
 // ---- player library ----
 app.get('/api/players', (req, res) => {
-  const { sort = 'overall', order = 'desc', pos } = req.query;
+  const { sort = 'overall', order = 'desc', pos, q } = req.query;
   const valid = ['name', 'position', 'overall', 'rating', 'pts', 'trb', 'ast', 'stl', 'blk', 'oepm', 'depm', 'epm', 'age'];
   const col = valid.includes(sort) ? sort : 'overall';
   const dir = order === 'asc' ? 'ASC' : 'DESC';
   let sql = 'SELECT id, name, position, position2, age, overall, pts, trb, ast, stl, blk, oepm, depm, epm FROM players';
   const params = [];
-  if (pos && ['PG', 'SG', 'SF', 'PF', 'C'].includes(pos)) { sql += ' WHERE position = ?'; params.push(pos); }
+  const where = [];
+  if (pos && ['PG', 'SG', 'SF', 'PF', 'C'].includes(pos)) { where.push('position = ?'); params.push(pos); }
+  if (q) { where.push('name LIKE ?'); params.push(`%${q}%`); }
+  if (where.length) sql += ' WHERE ' + where.join(' AND ');
   if (col !== 'rating') sql += ` ORDER BY ${col} ${dir}`;
   const players = db.prepare(sql).all(...params).map(p => ({ ...p, rating: +sim.powerRating(p).toFixed(1) }));
   if (col === 'rating') players.sort((a, b) => (dir === 'ASC' ? a.rating - b.rating : b.rating - a.rating));

@@ -57,6 +57,12 @@ function injuryLength() {
   return 7 + Math.floor(Math.random() * 6);
 }
 
+// Momentum: a win/loss streak nudges a team's effective strength, ±1% per game capped
+// at ±6%. Winning builds momentum, losing snowballs — but it's a modest, capped swing.
+function moraleFactor(streak) {
+  return 1 + Math.max(-6, Math.min(6, streak)) * 0.01;
+}
+
 function openDb() {
   return new DatabaseSync(DB_PATH);
 }
@@ -367,7 +373,7 @@ function simulateGames(teams, schedule, aiBonus) {
     const s = strengthOf(t);
     const acc = {};
     for (const p of t.players) acc[p.name] = { name: p.name, position: p.position, games: 0, pts: 0, trb: 0, ast: 0, stl: 0, blk: 0, epm: 0, depm: 0, fgPct: 0, threePct: 0, ftPct: 0, mvp: 0 };
-    return { t, s, wins: 0, played: 0, gameLog: t.isUser ? [] : null, acc, injured: new Map() };
+    return { t, s, wins: 0, played: 0, gameLog: t.isUser ? [] : null, acc, injured: new Map(), streak: 0 };
   });
 
   const accumulate = (row, stats) => {
@@ -396,19 +402,21 @@ function simulateGames(teams, schedule, aiBonus) {
     const aPlayers = A.t.players.filter((p) => !A.injured.has(p.name));
     // 3. Effective strength for this game = healthy lineup only (fall back to full
     //    roster if everyone were somehow hurt, which never happens in practice).
-    const hS = (hPlayers.length ? teamStrength(hPlayers) + (H.t.isUser ? 0 : aiBonus) : H.s);
-    const aS = (aPlayers.length ? teamStrength(aPlayers) + (A.t.isUser ? 0 : aiBonus) : A.s);
+    //    Momentum (win/loss streak) nudges it: a hot team plays a bit above itself.
+    const hS = (hPlayers.length ? teamStrength(hPlayers) + (H.t.isUser ? 0 : aiBonus) : H.s) * moraleFactor(H.streak);
+    const aS = (aPlayers.length ? teamStrength(aPlayers) + (A.t.isUser ? 0 : aiBonus) : A.s) * moraleFactor(A.streak);
     // a = home team; home court adds HOME_ADV to its effective strength.
     const r = simulateMatchup(hPlayers, aPlayers, 'regular', hS + HOME_ADV, aS);
     const homeWon = r.aWins;
     H.played++; A.played++;
-    if (homeWon) H.wins++; else A.wins++;
+    if (homeWon) { H.wins++; H.streak = H.streak > 0 ? H.streak + 1 : 1; A.streak = A.streak < 0 ? A.streak - 1 : -1; }
+    else { A.wins++; A.streak = A.streak > 0 ? A.streak + 1 : 1; H.streak = H.streak < 0 ? H.streak - 1 : -1; }
     const starA = gameStar(r.aStats);
     const starB = gameStar(r.bStats);
     const milA = milestoneOf(r.aStats);
     const milB = milestoneOf(r.bStats);
-    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: starA, milestone: milA });
-    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: starB, milestone: milB });
+    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: starA, milestone: milA, streak: H.streak });
+    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: starB, milestone: milB, streak: A.streak });
     // tally player-of-the-game for the user's team (mvp count)
     if (H.gameLog && starA && H.acc[starA]) H.acc[starA].mvp++;
     if (A.gameLog && starB && A.acc[starB]) A.acc[starB].mvp++;
