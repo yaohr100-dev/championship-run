@@ -3,6 +3,12 @@ const $ = (id) => document.getElementById(id);
 
 const state = { mode: 'open', replacedTeam: null, conference: null, roster: [], libSort: 'overall', libDir: 'desc', libPos: '', playoffRound: 1 };
 
+// Blind mode hides ALL ability info (overall/EPM/rating/strength/salary). Position is
+// hidden during the draft (you haven't got the player yet) but revealed from lineup
+// onward (needed to assign slots); real per-game stats (pts/trb/ast) stay visible since
+// they're observed performance, not scouting info.
+const isBlind = () => state.mode === 'blind';
+
 function show(id) {
   document.querySelectorAll('main > section').forEach((s) => (s.hidden = true));
   $(id).hidden = false;
@@ -77,6 +83,14 @@ async function loadLibrary() {
 
 function renderLibrary(players) {
   const tbody = $('library').querySelector('tbody');
+  const blind = isBlind();
+  // Blind mode: the library is a scouting cheat sheet — hide every ability/stat
+  // column so it can't be used to look up players before drafting. Only name+position.
+  if (blind) {
+    tbody.innerHTML = players.map((p) => `
+      <tr><td>${p.name}</td><td>${p.position}${p.position2 ? '/' + p.position2 : ''}</td></tr>`).join('');
+    return;
+  }
   tbody.innerHTML = players.map((p) => `
     <tr>
       <td>${p.name}</td><td>${p.position}${p.position2 ? '/' + p.position2 : ''}</td><td class="num">${p.overall}</td><td class="num">${p.rating}</td>
@@ -223,9 +237,9 @@ function resumePlayoffs(p) {
   const matchups = p.matchups.map((m) => `
     <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
       <div class="series-teams">
-        <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map((x) => `${x.name} (${x.position}, ${x.overall})`).join('<br>')}</div></details>
+        <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
         <span class="vs">vs</span>
-        <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map((x) => `${x.name} (${x.position}, ${x.overall})`).join('<br>')}</div></details>
+        <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
       </div>
     </div>`).join('');
   let html = `<h3>Playoff Bracket</h3>${renderBracket(p.rounds, p.nextMatchups)}`;
@@ -282,19 +296,19 @@ async function loadDraft() {
 function renderCandidates(candidates) {
   const box = $('candidates');
   box.innerHTML = '';
-  const blind = state.mode === 'blind';
-  // positions the roster still needs (for the "need" badge)
+  const blind = isBlind();
+  // positions the roster still needs (for the "need" badge) — hidden in blind mode
   const posCount = {};
   for (const p of state.roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needed = new Set(['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]));
   for (const c of candidates) {
     const card = document.createElement('div');
     card.className = 'card';
-    const need = needed.has(c.position);
+    const need = !blind && needed.has(c.position);
     card.innerHTML = `
       <div class="card-top">
         <strong>${c.name}</strong>
-        <span class="pos">${c.position}${c.position2 ? '/' + c.position2 : ''}</span>
+        ${blind ? '' : `<span class="pos">${c.position}${c.position2 ? '/' + c.position2 : ''}</span>`}
       </div>
       <div class="stats">Age ${c.age}</div>
       ${blind
@@ -302,7 +316,7 @@ function renderCandidates(candidates) {
         : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
            <div class="stats">${c.pts} pts · ${c.trb} reb · ${c.ast} ast</div>`}
       ${need ? '<div class="need-badge">Need ' + c.position + '</div>' : ''}
-      ${state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
+      ${!blind && state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
       <button data-id="${c.id}">Pick</button>`;
     card.querySelector('button').addEventListener('click', async () => {
       try {
@@ -360,6 +374,8 @@ function computeStrength(roster, starters, ignoreBench = false) {
 async function loadLineup() {
   const j = await api('/api/roster');
   state.roster = j.roster.sort((a, b) => b.rating - a.rating);
+  // hide the live team-strength banner in blind mode (ability info)
+  $('strength-banner').hidden = isBlind();
   renderLineup();
 }
 
@@ -378,10 +394,11 @@ function renderLineup() {
     const row = document.createElement('div');
     row.className = 'slot-row';
     const select = document.createElement('select');
+    const blind = isBlind();
     for (const p of state.roster) {
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}, OVR ${p.overall})`;
+      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}${blind ? '' : `, OVR ${p.overall}`})`;
       if (match && p.id === match.id) opt.selected = true;
       select.appendChild(opt);
     }
@@ -400,13 +417,14 @@ function updateBench() {
   const selects = $('slots').querySelectorAll('select');
   const selected = new Set([...selects].map((s) => +s.value));
   const bench = state.roster.filter((p) => !selected.has(p.id));
+  const blind = isBlind();
   $('bench').innerHTML = `<h3>Bench <span class="muted">(${bench.length})</span></h3><div class="chip-list">${
-    bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span></span>`).join('')
+    bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')
   }</div>`;
 
-  // live strength + per-slot position-mismatch penalty
+  // live strength + per-slot position-mismatch penalty (hidden in blind mode)
   const starters = POSITIONS.map((pos, i) => ({ playerId: +selects[i].value, slot: pos }));
-  $('strength-value').textContent = computeStrength(state.roster, starters).toFixed(1);
+  if (!blind) $('strength-value').textContent = computeStrength(state.roster, starters).toFixed(1);
   selects.forEach((sel, i) => {
     const p = state.roster.find((x) => x.id === +sel.value);
     const disc = positionDiscount(p.position, POSITIONS[i], p.position2);
@@ -507,8 +525,9 @@ let tradeNotice = '';
 function tradeChecklist(players, label) {
   const box = document.createElement('div');
   box.className = 'trade-checkbox-list';
+  const blind = isBlind();
   box.innerHTML = `<label class="trade-label">${label}</label>` + players.map((p) => `
-    <label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>${p.team ? ` <span class="muted">· ${p.team}</span>` : ''}</span></label>`).join('');
+    <label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}${p.team ? ` <span class="muted">· ${p.team}</span>` : ''}</span></label>`).join('');
   box.checked = () => [...box.querySelectorAll('input:checked')].map((c) => +c.value);
   return box;
 }
@@ -570,7 +589,8 @@ function renderPropose(myRoster, aiPlayers, teams) {
   aiList.className = 'trade-checkbox-list';
   const refreshAi = () => {
     const tm = teamSel.value;
-    aiList.innerHTML = `<label class="trade-label">${tm} players (pick same count)</label>` + aiPlayers.filter((p) => p.team === tm).map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span></span></label>`).join('');
+    const blind = isBlind();
+    aiList.innerHTML = `<label class="trade-label">${tm} players (pick same count)</label>` + aiPlayers.filter((p) => p.team === tm).map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span></label>`).join('');
   };
   teamSel.addEventListener('change', refreshAi);
   refreshAi();
@@ -603,10 +623,11 @@ function renderShop(myRoster) {
     if (!ids.length) { msg.textContent = 'Pick 1-3 players first.'; msg.className = 'bad trade-msg'; return; }
     try {
       const j = await api('/api/trade/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds: ids }) });
+      const blind = isBlind();
       offersBox.innerHTML = j.offers.length ? j.offers.map((o) => `
         <div class="trade-offer">
-          <div class="trade-offer-head">${o.aiTeam} offers <span class="muted">(${o.aiTotal} OVR)</span></div>
-          <div class="muted">${o.aiPlayers.map((p) => `${p.name} (${p.overall})`).join(', ')}</div>
+          <div class="trade-offer-head">${o.aiTeam} offers${blind ? '' : ` <span class="muted">(${o.aiTotal} OVR)</span>`}</div>
+          <div class="muted">${o.aiPlayers.map((p) => `${p.name}${blind ? '' : ` (${p.overall})`}`).join(', ')}</div>
           <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">Accept</button>
         </div>`).join('') : '<p class="muted">No offers.</p>';
       offersBox.querySelectorAll('.accept').forEach((b) => b.addEventListener('click', () => {
@@ -632,9 +653,10 @@ function renderIncoming() {
     for (const p of proposals) {
       const div = document.createElement('div');
       div.className = 'trade-offer';
+      const blind = isBlind();
       div.innerHTML = `
-        <div class="trade-offer-head">${p.aiTeam} wants <span class="muted">${p.myPlayers.map((x) => `${x.name} (${x.overall})`).join(', ')}</span></div>
-        <div class="muted">Offers ${p.aiPlayers.map((x) => `${x.name} (${x.overall})`).join(', ')}</div>
+        <div class="trade-offer-head">${p.aiTeam} wants <span class="muted">${p.myPlayers.map((x) => `${x.name}${blind ? '' : ` (${x.overall})`}`).join(', ')}</span></div>
+        <div class="muted">Offers ${p.aiPlayers.map((x) => `${x.name}${blind ? '' : ` (${x.overall})`}`).join(', ')}</div>
         <button class="accept">Accept</button>`;
       div.querySelector('.accept').addEventListener('click', () => {
         doTrade(p.myPlayers.map((x) => x.id), p.aiPlayers.map((x) => x.id), msg, true);
@@ -647,16 +669,22 @@ function renderIncoming() {
   });
 }
 
+// A single roster line ("Name (PG, 82)"); overall hidden in blind mode.
+function rosterLine(p) {
+  return `${p.role === 'starter' ? '★ ' : ''}${p.name} (${p.position}${isBlind() ? '' : `, ${p.overall}`})`;
+}
+
 function teamRosterHtml(t) {
   const list = t.roster || t.starters || [];
-  return list.map((p) => `${p.role === 'starter' ? '★ ' : ''}${p.name} (${p.position}, ${p.overall})`).join('<br>');
+  return list.map(rosterLine).join('<br>');
 }
 
 function standingsHtml(east, west) {
+  const blind = isBlind();
   const confTable = (title, teams) => `
     <h3>${title} Conference</h3>
     <div class="table-scroll"><table>
-      <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>Str</th></tr></thead>
+      <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th>${blind ? '' : '<th>Str</th>'}</tr></thead>
       <tbody>${teams.map((t, i) => `
         <tr${t.isUser ? ' class="me"' : ''}>
           <td>${i + 1}</td>
@@ -665,7 +693,7 @@ function standingsHtml(east, west) {
               <div class="roster">${teamRosterHtml(t)}</div>
             </details>
           </td>
-          <td class="w">${t.wins}</td><td class="l">${t.losses}</td><td>${t.strength}</td>
+          <td class="w">${t.wins}</td><td class="l">${t.losses}</td>${blind ? '' : `<td>${t.strength}</td>`}
         </tr>`).join('')}</tbody>
     </table></div>`;
   return confTable('Eastern', east) + confTable('Western', west);
@@ -703,11 +731,12 @@ function renderMidSeason(j) {
 
 function renderSeason(j) {
   $('simulate-season').hidden = true;
+  const blind = isBlind();
   const avgTable = `
     <h3>Your team's 82-game averages</h3>
     <div class="table-scroll"><table>
-      <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>EPM</th><th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
-      <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}${halfBadge(p.half)}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td>${fmt(p.epm)}</td><td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th>${blind ? '' : '<th>EPM</th>'}<th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
+      <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}${halfBadge(p.half)}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td>${blind ? '' : `<td>${fmt(p.epm)}</td>`}<td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table></div>`;
 
   const playoffBtn = j.madePlayoffs
@@ -715,7 +744,7 @@ function renderSeason(j) {
     : `<p class="muted" style="margin-top:16px">You missed the playoffs. <button id="go-home-missed" class="ghost">Back to Home</button></p>`;
 
   $('season-result').innerHTML =
-    `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>` +
+    (blind ? `<p class="muted">${j.teamName} (${j.conference})</p>` : `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>`) +
     gameLogHtml(j.gameLog) +
     awardsHtml(j.awards) +
     standingsHtml(j.east, j.west) + avgTable + playoffBtn;
@@ -771,9 +800,9 @@ function renderMatchups(matchups, round) {
     <div class="bracket">${matchups.map((m) => `
       <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
         <div class="series-teams">
-          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map((p) => `${p.name} (${p.position}, ${p.overall})`).join('<br>')}</div></details>
+          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
           <span class="vs">vs</span>
-          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map((p) => `${p.name} (${p.position}, ${p.overall})`).join('<br>')}</div></details>
+          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
         </div>
       </div>`).join('')}</div>
     <button id="simulate-round" class="primary">Simulate Round ${round}</button>`;
@@ -795,8 +824,8 @@ function renderRoundResults(j) {
       ${s.mvp ? `<div class="mvp-line">🏅 MVP: ${s.mvp}</div>` : ''}
       <div class="games">${s.games.map((g) => `G${g.g}: ${g.aScore}-${g.bScore}`).join(' · ')}</div>
       <details class="roster-details"><summary>Team rosters (10 each)</summary>
-        <div class="roster-team">${s.aName}${s.winner === s.aName ? ' 🏆' : ''}<br>${s.aRoster.map((p) => `${p.name} (${p.position}, ${p.overall})`).join('<br>')}</div>
-        <div class="roster-team">${s.bName}${s.winner === s.bName ? ' 🏆' : ''}<br>${s.bRoster.map((p) => `${p.name} (${p.position}, ${p.overall})`).join('<br>')}</div>
+        <div class="roster-team">${s.aName}${s.winner === s.aName ? ' 🏆' : ''}<br>${s.aRoster.map(rosterLine).join('<br>')}</div>
+        <div class="roster-team">${s.bName}${s.winner === s.bName ? ' 🏆' : ''}<br>${s.bRoster.map(rosterLine).join('<br>')}</div>
       </details>
       ${s.aStats && s.bStats ? `
         <details class="roster-details"><summary>Player averages (series)</summary>
@@ -859,8 +888,8 @@ function showResult() {
       </div>
       ${myAwards.length ? `<div class="result-awards">${myAwards.map((a) => `<span class="chip">${a}</span>`).join('')}</div>` : ''}
       <div class="result-roster">
-        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span></span>`).join('')}</div></div>
-        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span></span>`).join('')}</div></div>
+        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
+        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
       </div>
       ${top.length ? `<div class="result-top"><b>Top scorers</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} pts</span></span>`).join('')}</div></div>` : ''}
       ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>Team leaders</b><div class="chip-list">${
@@ -881,17 +910,18 @@ async function renderDraftRoster() {
   state.roster = roster;
   const box = $('draft-roster');
   if (!roster.length) { box.innerHTML = '<span class="muted">No players drafted yet.</span>'; return; }
+  const blind = isBlind();
   const posCount = {};
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needs = ['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]);
   const strength = computeStrength(roster, [], true);
   box.innerHTML = `
     <div class="roster-head">Your roster <span class="muted">(${roster.length}/10)</span>
-      <span class="strength-inline">· 💪 ${strength.toFixed(1)}</span>
-      ${needs.length ? `<span class="needs">· Need: ${needs.map((n) => `<b>${n}</b>`).join(' ')}</span>` : '<span class="good">· Positions covered ✓</span>'}
-      ${state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M spent</span>` : ''}
+      ${blind ? '' : `<span class="strength-inline">· 💪 ${strength.toFixed(1)}</span>`}
+      ${blind ? '' : (needs.length ? `<span class="needs">· Need: ${needs.map((n) => `<b>${n}</b>`).join(' ')}</span>` : '<span class="good">· Positions covered ✓</span>')}
+      ${!blind && state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M spent</span>` : ''}
     </div>
-    <div class="chip-list">${roster.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span></span>`).join('')}</div>`;
+    <div class="chip-list">${roster.map((p) => `<span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}</span>`).join('')}</div>`;
 }
 
 // ---------- Matchup Simulator ----------
@@ -946,7 +976,7 @@ function buildMatchupTeam(box, prefix, defaultIds) {
       .filter((p) => !selected.includes(p.id) && (!q || p.name.toLowerCase().includes(q)))
       .slice(0, 30);
     results.innerHTML = matches.length
-      ? matches.map((p) => `<label class="mm-result"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}${p.position2 ? '/' + p.position2 : ''}</span> <span class="muted">OVR ${p.overall} · ${p.pts} pts</span></span></label>`).join('')
+      ? matches.map((p) => `<label class="mm-result"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}${p.position2 ? '/' + p.position2 : ''}</span>${isBlind() ? '' : ` <span class="muted">OVR ${p.overall} · ${p.pts} pts</span>`}</span></label>`).join('')
       : '<span class="muted">No matching players.</span>';
   };
 
