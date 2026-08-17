@@ -406,7 +406,7 @@ function renderLineup() {
     for (const p of state.roster) {
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}${blind ? '' : `, OVR ${p.overall}`})`;
+      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}, ${p.age}yo${blind ? '' : `, OVR ${p.overall}`})`;
       if (match && p.id === match.id) opt.selected = true;
       select.appendChild(opt);
     }
@@ -427,7 +427,7 @@ function updateBench() {
   const bench = state.roster.filter((p) => !selected.has(p.id));
   const blind = isBlind();
   $('bench').innerHTML = `<h3>Bench <span class="muted">(${bench.length})</span></h3><div class="chip-list">${
-    bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')
+    bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')
   }</div>`;
 
   // live strength + per-slot position-mismatch penalty (hidden in blind mode)
@@ -899,8 +899,8 @@ function showResult() {
       </div>
       ${myAwards.length ? `<div class="result-awards">${myAwards.map((a) => `<span class="chip">${a}</span>`).join('')}</div>` : ''}
       <div class="result-roster">
-        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
-        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
+        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
+        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
       </div>
       ${top.length ? `<div class="result-top"><b>Top scorers</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} pts</span></span>`).join('')}</div></div>` : ''}
       ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>Team leaders</b><div class="chip-list">${
@@ -910,8 +910,22 @@ function showResult() {
         }).join('')
       }</div></div>` : ''}
       <div class="row" style="justify-content:center; margin-top:20px">
-        <button id="back-home-final" class="primary">Back to Home</button>
+        <button id="next-season" class="primary">▶ Next Season</button>
+        <button id="back-home-final" class="ghost">Back to Home</button>
       </div>`;
+    $('next-season').addEventListener('click', async () => {
+      try {
+        const j = await api('/api/next-season', { method: 'POST' });
+        let msg = 'Advancing to next season';
+        if (j.retirements && j.retirements.length) msg += ` · retired ${j.retirements.join(', ')}`;
+        if (j.signings && j.signings.length) msg += ` · signed ${j.signings.join(', ')}`;
+        // go to lineup: player re-confirms starters for the new season
+        state.midSeason = null;
+        await loadLineup();
+        show('lineup');
+        if (msg !== 'Advancing to next season') alert(msg);
+      } catch (e) { alert(e.message); }
+    });
     $('back-home-final').addEventListener('click', () => { goHome(); });
   });
 }

@@ -63,6 +63,21 @@ function moraleFactor(streak) {
   return 1 + Math.max(-6, Math.min(6, streak)) * 0.01;
 }
 
+// Dynasty progression: how far a player's overall is from their peak at a given age.
+// Young players rise (+ until 26), prime holds (26-29), then decline accelerates past 30.
+function ageDelta(age) {
+  const d = [ [-100, 20, -6], [21, 21, -5], [22, 22, -4], [23, 23, -3], [24, 24, -2], [25, 25, -1],
+    [26, 29, 0], [30, 30, -1], [31, 31, -2], [32, 32, -3], [33, 33, -4], [34, 34, -5], [35, 35, -6], [36, 200, -8] ];
+  for (const [lo, hi, delta] of d) if (age >= lo && age <= hi) return delta;
+  return 0;
+}
+
+// A player's effective overall = their base 2K overall + (age curve at current age) -
+// (age curve at base age). A 21-yo star gets better each year; a 30+ vet declines.
+function effectiveOverall(baseOverall, baseAge, currentAge) {
+  return Math.max(40, Math.round(baseOverall + ageDelta(currentAge) - ageDelta(baseAge)));
+}
+
 function openDb() {
   return new DatabaseSync(DB_PATH);
 }
@@ -707,4 +722,5 @@ module.exports = {
   simulateMatchup, simulateSeasonGame,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
+  ageDelta, effectiveOverall,
 };
