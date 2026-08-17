@@ -1,7 +1,7 @@
 // Championship Run — frontend logic
 const $ = (id) => document.getElementById(id);
 
-const state = { mode: 'open', replacedTeam: null, conference: null, roster: [], libSort: 'overall', libDir: 'desc', libPos: '', playoffRound: 1 };
+const state = { mode: 'open', gameMode: 'normal', seasonNumber: 1, replacedTeam: null, conference: null, roster: [], libSort: 'overall', libDir: 'desc', libPos: '', playoffRound: 1 };
 
 // Blind mode hides ALL ability info (overall/EPM/rating/strength) and per-player
 // salary (which encodes overall). Position is hidden during the draft but revealed
@@ -219,6 +219,8 @@ async function loadResume() {
     if (!r || r.phase === 'none') { $('continue-panel').hidden = true; return; }
     state.difficulty = r.difficulty;
     state.mode = r.mode;
+    state.gameMode = r.gameMode;
+    state.seasonNumber = r.seasonNumber;
     $('continue-summary').textContent = resumeLabel(r);
     $('continue-panel').hidden = false;
   } catch (e) { /* resume is best-effort */ }
@@ -226,16 +228,20 @@ async function loadResume() {
 
 function resumeLabel(r) {
   const name = r.teamName || 'My Team';
-  switch (r.phase) {
-    case 'draft': return `${name} · Draft (${r.rosterCount}/${r.rosterSize} picked)`;
-    case 'lineup': return `${name} · Set your starting 5`;
-    case 'preseason': return `${name} · Ready for the regular season`;
-    case 'midseason': return `${name} · Mid-season (${r.midseason ? r.midseason.wins + '-' + r.midseason.losses : '?'})`;
-    case 'season': return `${name} · Season complete`;
-    case 'playoffs': return `${name} · Playoffs (round ${r.playoffs ? r.playoffs.round : '?'})`;
-    case 'finished': return `${name} · Season over — view result`;
-    default: return name;
-  }
+  const season = r.gameMode === 'dynasty' ? ` · S${r.seasonNumber}` : '';
+  // offseason free-agency draft (dynasty) is still phase 'draft' but with open picks
+  const phase = r.phase === 'draft' && r.offseasonPicks > 0
+    ? `Free agency (${r.offseasonPicks} pick${r.offseasonPicks > 1 ? 's' : ''} left)`
+    : ({
+        draft: `Draft (${r.rosterCount}/${r.rosterSize} picked)`,
+        lineup: 'Set your starting 5',
+        preseason: 'Ready for the regular season',
+        midseason: `Mid-season (${r.midseason ? r.midseason.wins + '-' + r.midseason.losses : '?'})`,
+        season: 'Season complete',
+        playoffs: `Playoffs (round ${r.playoffs ? r.playoffs.round : '?'})`,
+        finished: 'Season over — view result',
+      }[r.phase] || r.phase);
+  return `${name}${season} · ${phase}`;
 }
 
 $('continue-run').addEventListener('click', async () => {
@@ -244,6 +250,8 @@ $('continue-run').addEventListener('click', async () => {
     state.mode = r.mode;
     state.difficulty = r.difficulty;
     state.hardMode = r.difficulty === 'hard';
+    state.gameMode = r.gameMode;
+    state.seasonNumber = r.seasonNumber;
     if (r.conference) state.conference = r.conference;
     if (r.replacedTeam) state.replacedTeam = r.replacedTeam;
     switch (r.phase) {

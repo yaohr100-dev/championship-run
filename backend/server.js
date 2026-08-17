@@ -1138,6 +1138,7 @@ app.get('/api/resume', (req, res) => {
   } else if (phase === 'playoffs') {
     out.playoffs = playoffsView();
   }
+  out.offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
   res.json(out);
 });
 
