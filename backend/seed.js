@@ -50,11 +50,18 @@ const DROP_PLAYERS = new Set([
 
 // Snapshot the user's saved teams + in-progress roster keyed by player NAME, so a
 // reseed can rebuild them after players get fresh ids (see restoreUserData).
+// Also snapshot the DYNASTY-persistent state keys (ages, season history, game mode,
+// identity) which are name- or scalar-keyed and survive a reseed. Transient per-season
+// state (season reports, league snapshots, standings) is deliberately dropped — it
+// references player ids that change on reseed.
+const PERSISTENT_STATE_KEYS = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'season_history', 'season_number'];
+
 function snapshotUserData(db) {
   return {
     teams: db.prepare('SELECT id, session_id, name, created_at, results_json FROM teams').all(),
     teamPlayers: db.prepare('SELECT tp.team_id, tp.role, tp.slot, p.name AS player_name FROM team_players tp JOIN players p ON p.id = tp.player_id').all(),
     roster: db.prepare('SELECT r.session_id, r.role, r.slot, p.name AS player_name FROM roster r JOIN players p ON p.id = r.player_id').all(),
+    state: db.prepare(`SELECT session_id, key, value FROM state WHERE key IN (${PERSISTENT_STATE_KEYS.map(() => '?').join(',')})`).all(...PERSISTENT_STATE_KEYS),
   };
 }
 
@@ -77,8 +84,22 @@ function restoreUserData(db, saved, newIdByName) {
     const p = pid(r.player_name);
     if (p != null) { insRoster.run(r.session_id, p, r.role, r.slot); rows++; }
   }
-  if (saved.teams.length || saved.roster.length) {
-    console.log(`Preserved across reseed: ${saved.teams.length} team(s), ${saved.roster.length} roster row(s)${skipped ? ` (skipped ${skipped} missing player(s))` : ''}.`);
+
+  // restore dynasty-persistent state (name/scalar keyed — survives id remap)
+  const upsertState = db.prepare('INSERT INTO state (session_id, key, value) VALUES (?, ?, ?) ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value');
+  for (const s of saved.state) upsertState.run(s.session_id, s.key, s.value);
+
+  // reset phase per session: full roster -> lineup, partial -> draft, else none.
+  const sessions = new Set([...saved.roster.map(r => r.session_id), ...saved.state.map(s => s.session_id)]);
+  for (const sid of sessions) {
+    const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(sid).c;
+    const phase = count >= 10 ? 'lineup' : (count > 0 ? 'draft' : 'none');
+    if (phase === 'none') continue;
+    db.prepare('INSERT INTO state (session_id, key, value) VALUES (?, ?, ?) ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value').run(sid, 'phase', phase);
+  }
+
+  if (saved.teams.length || saved.roster.length || saved.state.length) {
+    console.log(`Preserved across reseed: ${saved.teams.length} team(s), ${saved.roster.length} roster row(s), ${saved.state.length} state key(s)${skipped ? ` (skipped ${skipped} missing player(s))` : ''}.`);
   }
 }
 

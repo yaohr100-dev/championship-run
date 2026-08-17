@@ -183,12 +183,32 @@ async function loadCareer() {
 async function goHome() { show('home'); await loadCareer(); await loadSavedTeams(); await loadTrophies(); await loadResume(); }
 
 $('new-draft').addEventListener('click', async () => {
+  const gameMode = document.querySelector('input[name=game-mode]:checked').value;
   state.mode = document.querySelector('input[name=mode]:checked').value;
   state.difficulty = document.querySelector('input[name=difficulty]:checked').value;
-  await api('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ difficulty: state.difficulty, mode: state.mode }) });
+  await api('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ difficulty: state.difficulty, mode: state.mode, gameMode }) });
   show('draft');
   await loadDraft();
 });
+
+// Dynasty mode forces hard (salary cap) + open (no blind): disable those toggles.
+function syncModeNote() {
+  const dynasty = document.querySelector('input[name=game-mode]:checked').value === 'dynasty';
+  const blindRadio = document.querySelector('input[name=mode][value=blind]');
+  const normalDiff = document.querySelector('input[name=difficulty][value=normal]');
+  if (dynasty) {
+    blindRadio.disabled = true;
+    normalDiff.disabled = true;
+    document.querySelector('input[name=mode][value=open]').checked = true;
+    document.querySelector('input[name=difficulty][value=hard]').checked = true;
+    $('mode-note').textContent = 'Dynasty mode: salary cap on, ratings visible (no blind), up to 10 seasons.';
+  } else {
+    blindRadio.disabled = false;
+    normalDiff.disabled = false;
+    $('mode-note').textContent = '';
+  }
+}
+document.querySelectorAll('input[name=game-mode]').forEach((r) => r.addEventListener('change', syncModeNote));
 
 $('home-btn').addEventListener('click', () => { goHome(); });
 
@@ -898,14 +918,40 @@ function showResult() {
     const top = (r.seasonAverages || []).slice().sort((a, b) => b.pts - a.pts).slice(0, 5);
     const leaderOf = (key) => (r.seasonAverages || []).slice().sort((a, b) => b[key] - a[key])[0];
 
+    // dynasty progress + history
+    const isDynasty = r.gameMode === 'dynasty';
+    const seasonHeader = isDynasty ? `Season ${r.seasonNumber} of ${r.dynastyMax}` : 'Season';
+    const history = (r.seasonHistory || []);
+    const historyHtml = history.length ? `
+      <div class="dynasty-history">
+        <h3>Dynasty History</h3>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Season</th><th>Record</th><th>Result</th></tr></thead>
+          <tbody>${history.map((h) => `<tr>
+            <td class="num">${h.season}</td>
+            <td>${h.wins}-${h.losses}</td>
+            <td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>` : '';
+
+    // next-season only for dynasty, and only before the cap; summary always available
+    const canNext = isDynasty && r.seasonNumber < r.dynastyMax;
+    const actions = `
+      ${canNext ? `<button id="next-season" class="primary">▶ Next Season</button>` : (isDynasty ? `<p class="muted">🏆 Dynasty complete — ${r.dynastyMax} seasons played.</p>` : '')}
+      <button id="print-summary" class="primary">🖨️ Save / Print Summary</button>
+      <button id="back-home-final" class="ghost">Back to Home</button>`;
+
     $('result-body').innerHTML = `
       <div class="result-banner">${banner}</div>
       <p class="muted">${sub}</p>
       <div class="result-stats">
-        <div class="rs"><span class="rs-v">${record}</span><span class="rs-k">Regular season</span></div>
+        <div class="rs"><span class="rs-v">${record}</span><span class="rs-k">${seasonHeader}</span></div>
+        ${isDynasty ? `<div class="rs"><span class="rs-v">${history.filter(h => h.result === 'champion').length}</span><span class="rs-k">Championships</span></div>` : ''}
         ${myAwards.length ? `<div class="rs"><span class="rs-v">${myAwards.length}</span><span class="rs-k">Awards won</span></div>` : ''}
       </div>
       ${myAwards.length ? `<div class="result-awards">${myAwards.map((a) => `<span class="chip">${a}</span>`).join('')}</div>` : ''}
+      ${historyHtml}
       <div class="result-roster">
         <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
         <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
@@ -917,18 +963,15 @@ function showResult() {
           return l ? `<span class="chip">${label}: ${l.name} <span class="muted">${fmt(l[k])}</span></span>` : '';
         }).join('')
       }</div></div>` : ''}
-      <div class="row" style="justify-content:center; margin-top:20px">
-        <button id="next-season" class="primary">▶ Next Season</button>
-        <button id="back-home-final" class="ghost">Back to Home</button>
-      </div>`;
-    $('next-season').addEventListener('click', async () => {
+      <div class="row" style="justify-content:center; margin-top:20px">${actions}</div>`;
+
+    $('next-season')?.addEventListener('click', async () => {
       try {
         const j = await api('/api/next-season', { method: 'POST' });
         let msg = 'Advancing to next season';
         if (j.retirements && j.retirements.length) msg += ` · retired ${j.retirements.join(', ')}`;
         state.midSeason = null;
         if (j.offseasonPicks > 0) {
-          // retirements opened slots: offseason free-agency draft
           show('draft');
           await loadDraft();
           alert(`${msg} — sign ${j.offseasonPicks} free agent${j.offseasonPicks > 1 ? 's' : ''} to fill the roster.`);
@@ -939,8 +982,63 @@ function showResult() {
         }
       } catch (e) { alert(e.message); }
     });
+    $('print-summary').addEventListener('click', () => printSummary(r));
     $('back-home-final').addEventListener('click', () => { goHome(); });
   });
+}
+
+// Build a self-contained printable HTML summary of the season (normal) or dynasty, and
+// download it as a .html file the user can open/print/save as PDF.
+function printSummary(r) {
+  const isDynasty = r.gameMode === 'dynasty';
+  const title = isDynasty ? `${r.teamName} — Dynasty (${r.seasonNumber} of ${r.dynastyMax} seasons)` : `${r.teamName} — Season Summary`;
+  const history = r.seasonHistory || [];
+  const historyRows = history.map((h) => `
+    <tr><td>Season ${h.season}</td><td>${h.wins}-${h.losses}</td><td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td></tr>`).join('');
+
+  const awards = [];
+  if (r.awards) {
+    for (const [label, key] of [['MVP', 'mvp'], ['DPOY', 'dpoy'], ['Sixth Man', 'sixMan']]) {
+      const a = r.awards[key];
+      if (a && a.isUser) awards.push(`${label}: ${a.player}`);
+    }
+    for (const a of (r.awards.firstTeam || [])) if (a && a.isUser) awards.push(`All-NBA: ${a.player}`);
+  }
+  const starters = (r.roster || []).filter((p) => p.role === 'starter');
+  const bench = (r.roster || []).filter((p) => p.role !== 'starter');
+  const rosterRow = (p) => `<tr><td>${p.role === 'starter' ? '★ ' : ''}${p.name}</td><td>${p.position}</td><td>${p.age}</td><td>${p.overall}</td></tr>`;
+  const leaders = [['pts', 'PTS'], ['trb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK']].map(([k, label]) => {
+    const l = (r.seasonAverages || []).slice().sort((a, b) => b[k] - a[k])[0];
+    return l ? `<li>${label}: ${l.name} (${l[k]})</li>` : '';
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 40px auto; color: #111; line-height: 1.5; }
+    h1 { font-size: 26px; border-bottom: 2px solid #333; padding-bottom: 8px; }
+    h2 { font-size: 18px; margin-top: 28px; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 14px; }
+    th { background: #f0f0f0; }
+    .meta { color: #555; }
+    ul { padding-left: 20px; }
+    .footer { margin-top: 32px; font-size: 12px; color: #888; }
+  </style></head><body>
+    <h1>🏀 ${title}</h1>
+    <p class="meta">${isDynasty ? `Dynasty mode · ${history.filter(h => h.result === 'champion').length} championship${history.filter(h => h.result === 'champion').length === 1 ? '' : 's'}` : (r.season ? `${r.season.wins}-${r.season.losses}` : '')}</p>
+    ${historyRows ? `<h2>Season History</h2><table><thead><tr><th>Season</th><th>Record</th><th>Result</th></tr></thead><tbody>${historyRows}</tbody></table>` : ''}
+    ${awards.length ? `<h2>Awards</h2><ul>${awards.map((a) => `<li>${a}</li>`).join('')}</ul>` : ''}
+    ${(r.roster || []).length ? `<h2>Roster</h2><table><thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th></tr></thead><tbody>${[...starters, ...bench].map(rosterRow).join('')}</tbody></table>` : ''}
+    ${leaders ? `<h2>Team Leaders</h2><ul>${leaders}</ul>` : ''}
+    <p class="footer">Championship Run · generated ${new Date().toLocaleDateString()}</p>
+  </body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(r.teamName || 'team').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-summary.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function renderDraftRoster() {

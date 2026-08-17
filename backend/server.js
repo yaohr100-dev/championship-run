@@ -211,12 +211,10 @@ app.post('/api/roster', (req, res) => {
   }
 
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), playerId, 'bench', null);
-  // initialize dynasty age for this player (base age, unless already tracked)
+  // initialize dynasty age for this player (base age, unless already tracked), by NAME
   const ages = playerAges();
-  if (ages[playerId] == null) {
-    const p = db.prepare('SELECT age FROM players WHERE id = ?').get(playerId);
-    if (p) { ages[playerId] = p.age; setPlayerAges(ages); }
-  }
+  const pname = db.prepare('SELECT name, age FROM players WHERE id = ?').get(playerId);
+  if (pname && ages[pname.name] == null) { ages[pname.name] = pname.age; setPlayerAges(ages); }
   // offseason free-agency draft: decrement remaining picks; when done, go to lineup
   const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
   if (offseasonPicks > 0) {
@@ -261,44 +259,70 @@ app.post('/api/lineup', (req, res) => {
 });
 
 app.post('/api/reset', (req, res) => {
-  const { difficulty, mode } = req.body || {};
+  const { difficulty, mode, gameMode } = req.body || {};
+  // Dynasty mode forces hard (salary cap) + open (no blind) and is capped at 10 seasons.
+  const isDynasty = gameMode === 'dynasty';
   db.prepare('DELETE FROM roster WHERE session_id = ?').run(currentSession());
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
-  if (difficulty === 'hard') setState('difficulty', 'hard');
-  setState('mode', mode === 'blind' ? 'blind' : 'open');
+  if (isDynasty || difficulty === 'hard') setState('difficulty', 'hard');
+  setState('mode', isDynasty ? 'open' : (mode === 'blind' ? 'blind' : 'open'));
+  setState('game_mode', isDynasty ? 'dynasty' : 'normal');
+  setState('season_number', '1');
+  setState('season_history', '[]');
   setState('phase', 'draft');
-  res.json({ ok: true });
+  res.json({ ok: true, gameMode: isDynasty ? 'dynasty' : 'normal' });
 });
 
 // ---- dynasty: advance to the next season ----
 // Age everyone +1, retire players past 36, clear the season's transient state, then
 // return to lineup — or to an offseason free-agency draft if retirements opened slots.
 const RETIRE_AGE = 36;
+const DYNASTY_MAX_SEASONS = 10;
 
 app.post('/api/next-season', (req, res) => {
+  const isDynasty = getState('game_mode') === 'dynasty';
+  const seasonNumber = parseInt(getState('season_number') || '1', 10);
+
+  // append this season's outcome to the dynasty history before clearing transient state
+  const record = getState('season_record') ? JSON.parse(getState('season_record')) : null;
+  const playoff = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
+  let history = getState('season_history') ? JSON.parse(getState('season_history')) : [];
+  if (record) {
+    const champion = playoff && playoff.champion;
+    const userChampion = champion != null && !playoff.userEliminated;
+    history.push({
+      season: seasonNumber,
+      wins: record.wins, losses: record.losses,
+      result: userChampion ? 'champion' : (playoff && playoff.userEliminated ? `eliminated_r${playoff.userEliminatedRound || '?'}` : (playoff ? 'playoffs' : 'missed_playoffs')),
+      champion: userChampion,
+    });
+  }
+
   const ages = playerAges();
-  const rosterIds = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
+  const roster = db.prepare('SELECT r.player_id, p.name, p.age FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession());
 
   const retirements = [];
-  for (const id of [...rosterIds]) {
-    const cur = ages[id] != null ? ages[id] : db.prepare('SELECT age FROM players WHERE id = ?').get(id).age;
+  for (const row of roster) {
+    const cur = ages[row.name] != null ? ages[row.name] : row.age;
     const next = cur + 1;
     if (next >= RETIRE_AGE) {
-      retirements.push(db.prepare('SELECT name FROM players WHERE id = ?').get(id).name);
-      db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(id, currentSession());
-      delete ages[id];
+      retirements.push(row.name);
+      db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(row.player_id, currentSession());
+      delete ages[row.name];
     } else {
-      ages[id] = next;
+      ages[row.name] = next;
     }
   }
   setPlayerAges(ages);
 
-  // reset transient season state, keep identity + dynasty + difficulty/mode
-  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'player_ages'];
+  // reset transient season state, keep identity + dynasty + difficulty/mode + history
+  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages'];
   const keepVals = {};
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
   for (const [k, v] of Object.entries(keepVals)) setState(k, v);
+  setState('season_history', JSON.stringify(history));
+  setState('season_number', String(seasonNumber + 1));
   setState('rerolls', String(sim.REROLLS_PER_RUN));
 
   // open slots from retirements become an offseason free-agency draft (1 pick each)
@@ -309,7 +333,7 @@ app.post('/api/next-season', (req, res) => {
     setState('phase', 'lineup');
   }
 
-  res.json({ ok: true, retirements, offseasonPicks: retirements.length });
+  res.json({ ok: true, retirements, offseasonPicks: retirements.length, seasonNumber: seasonNumber + 1, isFinal: isDynasty && seasonNumber >= DYNASTY_MAX_SEASONS });
 });
 
 // ---- save / load teams ----
@@ -402,9 +426,11 @@ function getUserTeam() {
 
 // ---- dynasty (multi-season) ----
 // Each session tracks a per-player CURRENT age in state (`player_ages`, a JSON map
-// player_id -> age). A player's effective overall is their base 2K overall plus the
+// player NAME -> age). A player's effective overall is their base 2K overall plus the
 // age curve: young players rise to their peak, veterans decline. Applied only to the
 // user's own roster (AI teams regenerate fresh every season).
+// Keyed by NAME (not id) so reseeds and export/import — which remap players by name —
+// preserve dynasty ages.
 function playerAges() {
   const raw = getState('player_ages');
   return raw ? JSON.parse(raw) : {};
@@ -417,9 +443,9 @@ function setPlayerAges(ages) {
 function applyDynasty(players) {
   const ages = playerAges();
   for (const p of players) {
-    if (ages[p.id] != null) {
-      p.overall = sim.effectiveOverall(p.overall, p.age, ages[p.id]);
-      p.age = ages[p.id];
+    if (ages[p.name] != null) {
+      p.overall = sim.effectiveOverall(p.overall, p.age, ages[p.name]);
+      p.age = ages[p.name];
     }
   }
   return players;
@@ -1098,6 +1124,8 @@ app.get('/api/resume', (req, res) => {
     replacedTeam: getState('replaced_team') || null,
     difficulty: getState('difficulty') === 'hard' ? 'hard' : 'normal',
     mode: getState('mode') === 'blind' ? 'blind' : 'open',
+    gameMode: getState('game_mode') === 'dynasty' ? 'dynasty' : 'normal',
+    seasonNumber: parseInt(getState('season_number') || '1', 10),
     rosterCount,
     rosterSize: sim.ROSTER_SIZE,
   };
@@ -1123,6 +1151,9 @@ app.get('/api/result', (req, res) => {
   const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
   const gameLog = getState('season_game_log') ? JSON.parse(getState('season_game_log')) : null;
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
+  const gameMode = getState('game_mode') === 'dynasty' ? 'dynasty' : 'normal';
+  const seasonNumber = parseInt(getState('season_number') || '1', 10);
+  const seasonHistory = getState('season_history') ? JSON.parse(getState('season_history')) : [];
   res.json({
     teamName: getState('team_name') || 'My Team',
     season: seasonRecord,
@@ -1131,6 +1162,10 @@ app.get('/api/result', (req, res) => {
     playoff,
     awards: seasonResult ? seasonResult.awards : null,
     roster: roster.map(p => ({ name: p.name, position: p.position, age: p.age, overall: p.overall, rating: +sim.powerRating(p).toFixed(1), role: p.role })),
+    gameMode,
+    seasonNumber,
+    seasonHistory,
+    dynastyMax: gameMode === 'dynasty' ? DYNASTY_MAX_SEASONS : null,
   });
 });
 
