@@ -24,9 +24,13 @@ const TOTAL_MINUTES = 240;
 const REROLLS_PER_RUN = 5;
 const HARD_MODE_BUDGET = 400;  // hard mode salary cap
 const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0 = off)
-const PTS_SHARE_EXP = 1.5;     // scoring-share exponent: >1 lets a team's lead scorer pull away (lottery lead scorer ~20 ppg, vs 16 at 1.2)
-const PTS_SHARE_EXP_PO = 1.7;  // playoffs: stars carry a bit more usage (a star's average rises ~+2 ppg, matching real playoff usage)
-const OVERALL_SHARE_EXP = 0.7; // overall weighting: higher-overall players get a bigger scoring slice
+// Scoring share: anchored to ABILITY (expected points from overall), not raw real ppg.
+// Raw real ppg mixes in a player's real-world usage, so a 15-ppg role player on an
+// extremely weak team would otherwise balloon to 40+ ppg when they're the only scorer.
+// Instead: weight = expectedPts(overall) × (real_pts/expectedPts)^USAGE_EXP, where the
+// usage ratio is a mild "usage tendency" correction, not an absolute multiplier.
+const USAGE_EXP = 0.5;         // regular season: how strongly real usage tendency bends the share
+const USAGE_EXP_PO = 0.9;      // playoffs: stars carry a bit more usage (a star's average rises ~+1-2 ppg)
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
 const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive), but not so steep that a strong Finals opponent is unbeatable. Player title odds peak here (~15%) across the realistic opponent path.
@@ -57,6 +61,14 @@ function winProb(diff, scale) {
 // ---- player rating ----
 function powerRating(p) {
   return p.overall + p.epm * EPM_COEF;
+}
+
+// Expected per-game points from a player's 2K overall. This anchors the scoring-share
+// model to ABILITY rather than raw real ppg (which already includes a player's real
+// world usage, so a 15-ppg role player isn't inflated when they become a weak team's
+// only scorer). Matches seed.js's estimateStats fallback.
+function expectedPts(overall) {
+  return Math.max(1, (overall - 55) * 0.7);
 }
 
 // Hard-mode salary: superstars cost disproportionately more, so under the cap you
@@ -576,12 +588,17 @@ function allocateStats(players, teamScore, topHeavy = false) {
   // every player scores at least 1 point, so a 0-point line can't conflict with FG%
   const minPts = 1;
   const remaining = Math.max(0, score - minPts * rows.length);
-  // Points are proportional to real scoring^ptsExp × overall^OVERALL_SHARE_EXP
-  // (stars with high real scoring AND high overall get the biggest slice). No minutes
-  // term, so a defensive specialist (high overall, low pts) isn't over-inflated.
-  // In the playoffs the pts exponent rises slightly, so stars carry more usage.
-  const ptsExp = topHeavy ? PTS_SHARE_EXP_PO : PTS_SHARE_EXP;
-  const pts = allocateInteger(rows.map(x => Math.pow(Math.max(0.1, x.p.pts), ptsExp) * Math.pow(x.p.overall, OVERALL_SHARE_EXP) * x.f * x.disc), remaining);
+  // Scoring share is anchored to ability (expectedPts from overall), with real ppg as
+  // a mild "usage tendency" correction. This keeps a weak team's only scorer from
+  // ballooning to 40+ ppg, and keeps a defensive specialist (high overall, low pts)
+  // from being over-inflated. Playoffs raise the usage exponent slightly so stars
+  // carry more usage.
+  const usageExp = topHeavy ? USAGE_EXP_PO : USAGE_EXP;
+  const pts = allocateInteger(rows.map(x => {
+    const exp = expectedPts(x.p.overall);
+    const usage = Math.max(0.1, x.p.pts) / exp;
+    return exp * Math.pow(usage, usageExp) * x.f * x.disc;
+  }), remaining);
   for (let i = 0; i < pts.length; i++) pts[i] += minPts;
   // counting stats scale with simulated minutes relative to real minutes
   // (per-minute rate × simulated minutes), so box-score aligns with who the
