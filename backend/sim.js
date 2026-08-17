@@ -24,13 +24,13 @@ const TOTAL_MINUTES = 240;
 const REROLLS_PER_RUN = 5;
 const HARD_MODE_BUDGET = 400;  // hard mode salary cap
 const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0 = off)
-// Scoring share: anchored to ABILITY (expected points from overall), not raw real ppg.
-// Raw real ppg mixes in a player's real-world usage, so a 15-ppg role player on an
-// extremely weak team would otherwise balloon to 40+ ppg when they're the only scorer.
-// Instead: weight = expectedPts(overall) × (real_pts/expectedPts)^USAGE_EXP, where the
-// usage ratio is a mild "usage tendency" correction, not an absolute multiplier.
-const USAGE_EXP = 0.5;         // regular season: how strongly real usage tendency bends the share
-const USAGE_EXP_PO = 0.9;      // playoffs: stars carry a bit more usage (a star's average rises ~+1-2 ppg)
+// Scoring share: anchored to ABILITY via a power-law expected-ppg curve fitted to
+// the real data (expectedPts(overall) = 0.072 * (overall-55)^1.60). Raw real ppg is
+// used only as a mild "usage tendency" correction (^USAGE_EXP), so a weak player's
+// real per-36 rate (often inflated by low-competition minutes) can't balloon them to
+// 25+ ppg, while strong players land near their real ppg.
+const USAGE_EXP = 0.4;         // how strongly real usage tendency bends the share
+const USAGE_EXP_PO = 0.6;      // playoffs: stars carry a bit more usage
 const SEASON_GAMES = 82;
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
 const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive), but not so steep that a strong Finals opponent is unbeatable. Player title odds peak here (~15%) across the realistic opponent path.
@@ -63,12 +63,12 @@ function powerRating(p) {
   return p.overall + p.epm * EPM_COEF;
 }
 
-// Expected per-game points from a player's 2K overall. This anchors the scoring-share
-// model to ABILITY rather than raw real ppg (which already includes a player's real
-// world usage, so a 15-ppg role player isn't inflated when they become a weak team's
-// only scorer). Matches seed.js's estimateStats fallback.
+// Expected per-game points from a player's 2K overall, fitted to the real data.
+// Power law (not linear) so low-overall players score far less per game: an 72-ovr
+// fringe player ~7 ppg, a 98-ovr superstar ~30 ppg. This is the ability anchor for
+// the scoring-share model.
 function expectedPts(overall) {
-  return Math.max(1, (overall - 55) * 0.7);
+  return 0.072 * Math.pow(Math.max(1, overall - 55), 1.60);
 }
 
 // Hard-mode salary: superstars cost disproportionately more, so under the cap you
@@ -588,11 +588,10 @@ function allocateStats(players, teamScore, topHeavy = false) {
   // every player scores at least 1 point, so a 0-point line can't conflict with FG%
   const minPts = 1;
   const remaining = Math.max(0, score - minPts * rows.length);
-  // Scoring share is anchored to ability (expectedPts from overall), with real ppg as
-  // a mild "usage tendency" correction. This keeps a weak team's only scorer from
-  // ballooning to 40+ ppg, and keeps a defensive specialist (high overall, low pts)
-  // from being over-inflated. Playoffs raise the usage exponent slightly so stars
-  // carry more usage.
+  // Scoring share = expectedPts(overall) × (real_pts/expectedPts)^usageExp. The
+  // power-law expectedPts anchors to ability so weak players stay low; the usage
+  // ratio is a mild tendency correction so a high-usage star edges ahead of a
+  // same-overall teammate. Playoffs raise usageExp slightly (stars carry more usage).
   const usageExp = topHeavy ? USAGE_EXP_PO : USAGE_EXP;
   const pts = allocateInteger(rows.map(x => {
     const exp = expectedPts(x.p.overall);
