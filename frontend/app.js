@@ -87,6 +87,11 @@ function renderLibrary(players) {
   const blind = isBlind();
   // Blind mode: the library is a scouting cheat sheet — hide every ability/stat
   // column so it can't be used to look up players before drafting. Only name+position.
+  // Hide the matching header columns too, so the table doesn't misalign.
+  const visibleCols = blind ? ['name', 'position'] : null;
+  $('library').querySelectorAll('th[data-sort]').forEach((th) => {
+    th.hidden = visibleCols ? !visibleCols.includes(th.dataset.sort) : false;
+  });
   if (blind) {
     tbody.innerHTML = players.map((p) => `
       <tr><td>${p.name}</td><td>${p.position}${p.position2 ? '/' + p.position2 : ''}</td></tr>`).join('');

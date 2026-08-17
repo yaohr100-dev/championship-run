@@ -69,7 +69,7 @@ app.get('/api/nba-teams', (req, res) => res.json({ teams: sim.NBA_TEAMS }));
 // ---- player library ----
 app.get('/api/players', (req, res) => {
   const { sort = 'overall', order = 'desc', pos } = req.query;
-  const valid = ['overall', 'rating', 'pts', 'trb', 'ast', 'stl', 'blk', 'oepm', 'depm', 'epm', 'age'];
+  const valid = ['name', 'position', 'overall', 'rating', 'pts', 'trb', 'ast', 'stl', 'blk', 'oepm', 'depm', 'epm', 'age'];
   const col = valid.includes(sort) ? sort : 'overall';
   const dir = order === 'asc' ? 'ASC' : 'DESC';
   let sql = 'SELECT id, name, position, position2, age, overall, pts, trb, ast, stl, blk, oepm, depm, epm FROM players';
