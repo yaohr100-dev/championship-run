@@ -855,7 +855,10 @@ function seriesMVP(stats) {
   if (!stats || !stats.length) return null;
   let best = stats[0], bestScore = -Infinity;
   for (const s of stats) {
-    const score = s.pts + 1.2 * s.trb + 1.5 * s.ast + 2 * s.stl + 2 * s.blk + (s.epm || 0) * 3;
+    // Box score (matching gameStar's weighting) + a mild EPM impact term. EPM is
+    // averaged over the series so its noise cancels; ×1 keeps scoring dominant
+    // (an 18-pt defensive anchor shouldn't beat a 30-pt scorer).
+    const score = s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk + (s.epm || 0);
     if (score > bestScore) { bestScore = score; best = s; }
   }
   return best.name;
