@@ -293,6 +293,14 @@ async function loadDraft() {
   const j = await api('/api/draft');
   $('reroll-count').textContent = j.rerolls;
   $('draft-progress').textContent = `${j.rosterCount} / ${j.rosterSize} picked`;
+  // offseason free-agency draft (dynasty) has a different title/description
+  if (j.offseason) {
+    $('draft-title').firstChild.textContent = 'Free Agency ';
+    $('draft-desc').textContent = `Sign ${j.offseasonPicks} young free agent${j.offseasonPicks > 1 ? 's' : ''} to replace your retirees.`;
+  } else {
+    $('draft-title').firstChild.textContent = 'Draft ';
+    $('draft-desc').textContent = 'Pick 1 of 5 players each round, until you have 10.';
+  }
   state.hardMode = j.hardMode;
   state.budget = j.budget;
   state.spent = j.spent;
@@ -918,12 +926,17 @@ function showResult() {
         const j = await api('/api/next-season', { method: 'POST' });
         let msg = 'Advancing to next season';
         if (j.retirements && j.retirements.length) msg += ` · retired ${j.retirements.join(', ')}`;
-        if (j.signings && j.signings.length) msg += ` · signed ${j.signings.join(', ')}`;
-        // go to lineup: player re-confirms starters for the new season
         state.midSeason = null;
-        await loadLineup();
-        show('lineup');
-        if (msg !== 'Advancing to next season') alert(msg);
+        if (j.offseasonPicks > 0) {
+          // retirements opened slots: offseason free-agency draft
+          show('draft');
+          await loadDraft();
+          alert(`${msg} — sign ${j.offseasonPicks} free agent${j.offseasonPicks > 1 ? 's' : ''} to fill the roster.`);
+        } else {
+          await loadLineup();
+          show('lineup');
+          if (msg !== 'Advancing to next season') alert(msg);
+        }
       } catch (e) { alert(e.message); }
     });
     $('back-home-final').addEventListener('click', () => { goHome(); });

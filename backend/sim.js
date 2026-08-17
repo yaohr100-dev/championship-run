@@ -197,6 +197,21 @@ function draftCandidates(db) {
   return candidates;
 }
 
+// Offseason free agency: same shape as the draft, but restricted to young players
+// (age <= maxAge) so a retired veteran is replaced by an up-and-coming player.
+function freeAgentCandidates(db, maxAge = 23) {
+  const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
+  const all = db.prepare('SELECT * FROM players').all().filter(p => !drafted.has(p.id) && p.age <= maxAge);
+  const pool = all.length >= 5 ? all : db.prepare('SELECT * FROM players').all().filter(p => !drafted.has(p.id));
+  let candidates = [];
+  for (let i = 0; i < 200; i++) {
+    candidates = shuffle(pool).slice(0, 5);
+    const positions = new Set(candidates.map(p => p.position));
+    if (positions.size >= 4) break;
+  }
+  return candidates;
+}
+
 // ---- AI team generation ----
 
 // Weighted sample (without replacement) of `n` players, favouring ratings near
@@ -718,7 +733,7 @@ function shotPct(base, amplitude, min, max) {
 
 module.exports = {
   openDb, powerRating, playerSalary, minutesWeight, positionDiscount, teamStrength,
-  draftCandidates, generateAITeam, simulateSeason, buildLeague, buildSchedule, simulateGames, mergeStandings, finalizeSeason,
+  draftCandidates, freeAgentCandidates, generateAITeam, simulateSeason, buildLeague, buildSchedule, simulateGames, mergeStandings, finalizeSeason,
   simulateMatchup, simulateSeasonGame,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,

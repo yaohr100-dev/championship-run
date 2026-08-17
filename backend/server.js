@@ -141,7 +141,10 @@ app.post('/api/matchup', (req, res) => {
 
 // ---- draft ----
 app.get('/api/draft', (req, res) => {
-  let candidates = sim.draftCandidates(db);
+  // offseason free-agency draft (retirements opened slots) uses young candidates
+  const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
+  const offseason = offseasonPicks > 0;
+  let candidates = offseason ? sim.freeAgentCandidates(db) : sim.draftCandidates(db);
   const hard = getState('difficulty') === 'hard';
   const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const spent = hard
@@ -171,13 +174,17 @@ app.get('/api/draft', (req, res) => {
     hardMode: hard,
     budget: hard ? sim.HARD_MODE_BUDGET : null,
     spent: hard ? spent : null,
+    offseason,
+    offseasonPicks,
   });
 });
 app.post('/api/draft/reroll', (req, res) => {
   let rerolls = ensureRerolls();
   if (rerolls <= 0) return res.status(400).json({ error: 'No rerolls left' });
   setState('rerolls', rerolls - 1);
-  res.json({ rerolls: rerolls - 1, candidates: sim.draftCandidates(db).map(playerBrief) });
+  const offseason = parseInt(getState('offseason_picks') || '0', 10) > 0;
+  const candidates = offseason ? sim.freeAgentCandidates(db) : sim.draftCandidates(db);
+  res.json({ rerolls: rerolls - 1, candidates: candidates.map(playerBrief) });
 });
 app.post('/api/roster', (req, res) => {
   const { playerId } = req.body || {};
@@ -210,7 +217,15 @@ app.post('/api/roster', (req, res) => {
     const p = db.prepare('SELECT age FROM players WHERE id = ?').get(playerId);
     if (p) { ages[playerId] = p.age; setPlayerAges(ages); }
   }
-  if (count + 1 >= sim.ROSTER_SIZE) setState('phase', 'lineup');
+  // offseason free-agency draft: decrement remaining picks; when done, go to lineup
+  const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
+  if (offseasonPicks > 0) {
+    const remaining = offseasonPicks - 1;
+    if (remaining <= 0) { setState('offseason_picks', '0'); setState('phase', 'lineup'); }
+    else setState('offseason_picks', String(remaining));
+  } else if (count + 1 >= sim.ROSTER_SIZE) {
+    setState('phase', 'lineup');
+  }
   res.json({ ok: true, rosterCount: count + 1 });
 });
 
@@ -256,39 +271,22 @@ app.post('/api/reset', (req, res) => {
 });
 
 // ---- dynasty: advance to the next season ----
-// Age everyone +1, retire players past 36 (auto-replace with a young free agent so the
-// roster stays at 10), clear the season's transient state, and return to lineup.
+// Age everyone +1, retire players past 36, clear the season's transient state, then
+// return to lineup — or to an offseason free-agency draft if retirements opened slots.
 const RETIRE_AGE = 36;
-const FREE_AGENT_MAX_AGE = 23;
-const FREE_AGENT_MAX_OVERALL = 74;
 
 app.post('/api/next-season', (req, res) => {
   const ages = playerAges();
-  // ids currently on the roster (these + any already signed FAs must be excluded from FA pool)
-  const takenIds = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
+  const rosterIds = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
 
   const retirements = [];
-  const signings = [];
-  for (const id of [...takenIds]) {
+  for (const id of [...rosterIds]) {
     const cur = ages[id] != null ? ages[id] : db.prepare('SELECT age FROM players WHERE id = ?').get(id).age;
     const next = cur + 1;
     if (next >= RETIRE_AGE) {
-      // retire this player and sign a young free agent to replace them
       retirements.push(db.prepare('SELECT name FROM players WHERE id = ?').get(id).name);
       db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(id, currentSession());
       delete ages[id];
-      takenIds.delete(id);
-      // pick a young, moderate free agent not already on the roster / signed this offseason
-      const exclude = [...takenIds];
-      const fa = exclude.length
-        ? db.prepare('SELECT * FROM players WHERE age <= ? AND overall <= ? AND id NOT IN (' + exclude.join(',') + ') ORDER BY overall DESC LIMIT 1').get(FREE_AGENT_MAX_AGE, FREE_AGENT_MAX_OVERALL)
-        : db.prepare('SELECT * FROM players WHERE age <= ? AND overall <= ? ORDER BY overall DESC LIMIT 1').get(FREE_AGENT_MAX_AGE, FREE_AGENT_MAX_OVERALL);
-      if (fa) {
-        db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), fa.id, 'bench', null);
-        ages[fa.id] = fa.age;
-        takenIds.add(fa.id);
-        signings.push(fa.name);
-      }
     } else {
       ages[id] = next;
     }
@@ -301,10 +299,17 @@ app.post('/api/next-season', (req, res) => {
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
   for (const [k, v] of Object.entries(keepVals)) setState(k, v);
-  setState('phase', 'lineup');
   setState('rerolls', String(sim.REROLLS_PER_RUN));
 
-  res.json({ ok: true, retirements, signings });
+  // open slots from retirements become an offseason free-agency draft (1 pick each)
+  if (retirements.length > 0) {
+    setState('offseason_picks', String(retirements.length));
+    setState('phase', 'draft');
+  } else {
+    setState('phase', 'lineup');
+  }
+
+  res.json({ ok: true, retirements, offseasonPicks: retirements.length });
 });
 
 // ---- save / load teams ----
