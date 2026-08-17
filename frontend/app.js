@@ -518,6 +518,8 @@ function gameLogHtml(games) {
       <span class="gl-opp">${g.opp}</span>
       <span class="gl-score">${g.score}–${g.oppScore}</span>
       ${g.star ? `<span class="gl-star muted">⭐ ${g.star}</span>` : ''}
+      ${g.milestone ? `<span class="gl-milestone">${g.milestone}</span>` : ''}
+      ${g.injuries && g.injuries.length ? `<span class="gl-injury" title="${g.injuries.map(i => `${i.name} (${i.games} games)`).join(' · ')}">🚑 ${g.injuries.map(i => i.name.split(' ').pop()).join(', ')}</span>` : ''}
     </div>`).join('');
   return `
     <h3>Season Form <span class="muted">· ${streak}-game ${lastWin ? 'win' : 'loss'} streak · ${wins}-${losses}</span></h3>

@@ -40,6 +40,23 @@ const AI_TEAM_BAND = 8;        // talent spread around an AI team's target stren
 const BENCH_MINUTES_RATIO = 0.75; // bench players play this fraction of their ability-driven minutes, so lineup choice affects team strength
 const TEAMS_PER_CONF = 15;
 
+// ---- injuries ----
+// Per-game injury probability (26-yo baseline), age-weighted: young/prime players are
+// durable, veterans get brittle. Kept low so injuries are felt but not constant.
+function injuryProb(age) {
+  const base = 0.025;
+  const ageFactor = age >= 33 ? 1.7 : age >= 30 ? 1.3 : age >= 26 ? 1.0 : age >= 22 ? 0.85 : 0.7;
+  return base * ageFactor;
+}
+// Games a new injury lasts: mostly 1, occasional 2-3, rare 4-6, very rare 7-12.
+function injuryLength() {
+  const r = Math.random();
+  if (r < 0.40) return 1;
+  if (r < 0.75) return 2 + Math.floor(Math.random() * 2);
+  if (r < 0.95) return 4 + Math.floor(Math.random() * 3);
+  return 7 + Math.floor(Math.random() * 6);
+}
+
 function openDb() {
   return new DatabaseSync(DB_PATH);
 }
@@ -329,6 +346,18 @@ function gameStar(stats) {
   return best ? best.name : null;
 }
 
+// Notable single-game lines: a triple-double (a Jokic-type star), or a 25+ point
+// outburst (~7% of games — rare enough to feel special, not so rare it never shows).
+function milestoneOf(stats) {
+  for (const s of stats) {
+    if (s.pts >= 10 && s.trb >= 10 && s.ast >= 10) return s.name + ' triple-double';
+  }
+  for (const s of stats) {
+    if (s.pts >= 25) return s.name + ' ' + s.pts + 'pts';
+  }
+  return null;
+}
+
 // Simulate one half's schedule head-to-head. Each matchup produces a real score and
 // a winner (home court helps); both teams accumulate stats, W/L and — for the user —
 // a per-game log. `schedule` is an array of { home, away } indices into `teams`.
@@ -338,7 +367,7 @@ function simulateGames(teams, schedule, aiBonus) {
     const s = strengthOf(t);
     const acc = {};
     for (const p of t.players) acc[p.name] = { name: p.name, position: p.position, games: 0, pts: 0, trb: 0, ast: 0, stl: 0, blk: 0, epm: 0, depm: 0, fgPct: 0, threePct: 0, ftPct: 0, mvp: 0 };
-    return { t, s, wins: 0, played: 0, gameLog: t.isUser ? [] : null, acc };
+    return { t, s, wins: 0, played: 0, gameLog: t.isUser ? [] : null, acc, injured: new Map() };
   });
 
   const accumulate = (row, stats) => {
@@ -355,20 +384,50 @@ function simulateGames(teams, schedule, aiBonus) {
 
   for (const { home, away } of schedule) {
     const H = rows[home], A = rows[away];
+    // 1. Recover: decrement each injured player's games-left; those at 0 return.
+    for (const row of [H, A]) {
+      for (const [name, left] of [...row.injured]) {
+        if (left <= 1) row.injured.delete(name);
+        else row.injured.set(name, left - 1);
+      }
+    }
+    // 2. Healthy lineups (injured players sit out; bench steps up).
+    const hPlayers = H.t.players.filter((p) => !H.injured.has(p.name));
+    const aPlayers = A.t.players.filter((p) => !A.injured.has(p.name));
+    // 3. Effective strength for this game = healthy lineup only (fall back to full
+    //    roster if everyone were somehow hurt, which never happens in practice).
+    const hS = (hPlayers.length ? teamStrength(hPlayers) + (H.t.isUser ? 0 : aiBonus) : H.s);
+    const aS = (aPlayers.length ? teamStrength(aPlayers) + (A.t.isUser ? 0 : aiBonus) : A.s);
     // a = home team; home court adds HOME_ADV to its effective strength.
-    const r = simulateMatchup(H.t.players, A.t.players, 'regular', H.s + HOME_ADV, A.s);
+    const r = simulateMatchup(hPlayers, aPlayers, 'regular', hS + HOME_ADV, aS);
     const homeWon = r.aWins;
     H.played++; A.played++;
     if (homeWon) H.wins++; else A.wins++;
     const starA = gameStar(r.aStats);
     const starB = gameStar(r.bStats);
-    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: starA });
-    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: starB });
+    const milA = milestoneOf(r.aStats);
+    const milB = milestoneOf(r.bStats);
+    if (H.gameLog) H.gameLog.push({ opp: A.t.name, home: true, win: homeWon, score: r.aScore, oppScore: r.bScore, star: starA, milestone: milA });
+    if (A.gameLog) A.gameLog.push({ opp: H.t.name, home: false, win: !homeWon, score: r.bScore, oppScore: r.aScore, star: starB, milestone: milB });
     // tally player-of-the-game for the user's team (mvp count)
     if (H.gameLog && starA && H.acc[starA]) H.acc[starA].mvp++;
     if (A.gameLog && starB && A.acc[starB]) A.acc[starB].mvp++;
     accumulate(H, r.aStats);
     accumulate(A, r.bStats);
+    // 4. Roll new injuries for each team's healthy players; record on the user's log.
+    for (const row of [H, A]) {
+      for (const p of row.t.players) {
+        if (row.injured.has(p.name)) continue;
+        if (Math.random() < injuryProb(p.age)) {
+          const games = injuryLength();
+          row.injured.set(p.name, games);
+          if (row.gameLog) {
+            const last = row.gameLog[row.gameLog.length - 1];
+            if (last) (last.injuries = last.injuries || []).push({ name: p.name, games });
+          }
+        }
+      }
+    }
   }
 
   return rows.map(({ t, s, wins, played, gameLog, acc }) => ({ ...t, strength: s, wins, losses: played - wins, winPct: played ? wins / played : 0, gameLog, acc }));
