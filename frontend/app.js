@@ -65,12 +65,12 @@ const growthBadge = (p) => (p.delta == null ? '' : (p.delta > 0 ? ` <span class=
 function initSessionUI() {
   $('session-id').value = SESSION_ID;
   $('copy-session').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(SESSION_ID); $('session-msg').textContent = 'Session ID copied.'; }
-    catch (e) { $('session-id').select(); $('session-msg').textContent = 'Copy failed — select and copy it manually.'; }
+    try { await navigator.clipboard.writeText(SESSION_ID); $('session-msg').textContent = t('misc.sessionCopied'); }
+    catch (e) { $('session-id').select(); $('session-msg').textContent = t('misc.copyFailed'); }
   });
   $('apply-session').addEventListener('click', () => {
     const v = ($('switch-session').value || '').trim().slice(0, 64);
-    if (!v) { $('session-msg').textContent = 'Paste a session ID first.'; return; }
+    if (!v) { $('session-msg').textContent = t('misc.pasteFirst'); return; }
     localStorage.setItem('championship_session', v);
     SESSION_ID = v;
     location.reload();
@@ -141,7 +141,7 @@ function renderLibrary(players) {
 async function loadSavedTeams() {
   const { teams } = await api('/api/teams');
   const box = $('saved-teams');
-  if (!teams.length) { box.innerHTML = '<span class="muted">No saved teams yet.</span>'; return; }
+  if (!teams.length) { box.innerHTML = `<span class="muted">${t('misc.noArchive')}</span>`; return; }
   box.innerHTML = '';
   for (const t of teams) {
     const div = document.createElement('div');
@@ -194,23 +194,23 @@ function renderTrophies(trophies) {
   const teamItem = (t) => `<div class="trophy-item">${t.team_name}${season(t)}</div>`;
   const playerItem = (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span>${season(t)}</div>`;
   box.innerHTML =
-    group('🏆 NBA Championship', trophies.filter((t) => t.type === 'championship'), teamItem) +
-    group('🏆 Eastern Conference Champion', trophies.filter((t) => t.type === 'east_champion'), teamItem) +
-    group('🏆 Western Conference Champion', trophies.filter((t) => t.type === 'west_champion'), teamItem) +
-    group('🏆 Regular Season MVP', trophies.filter((t) => t.type === 'season_mvp'), playerItem) +
-    group('🛡️ Defensive Player', trophies.filter((t) => t.type === 'dpoy'), playerItem) +
-    group('🔥 Sixth Man', trophies.filter((t) => t.type === 'six_man'), playerItem) +
-    group('🌟 All-NBA First Team', trophies.filter((t) => t.type === 'all_nba'), playerItem) +
-    group('🏅 Finals MVP', trophies.filter((t) => t.type === 'finals_mvp'), playerItem) +
-    group('🏅 Eastern Conference Finals MVP', trophies.filter((t) => t.type === 'east_mvp'), playerItem) +
-    group('🏅 Western Conference Finals MVP', trophies.filter((t) => t.type === 'west_mvp'), playerItem);
+    group('🏆 NBA 总冠军', trophies.filter((t) => t.type === 'championship'), teamItem) +
+    group('🏆 东部冠军', trophies.filter((t) => t.type === 'east_champion'), teamItem) +
+    group('🏆 西部冠军', trophies.filter((t) => t.type === 'west_champion'), teamItem) +
+    group('🏆 常规赛MVP', trophies.filter((t) => t.type === 'season_mvp'), playerItem) +
+    group('🛡️ 最佳防守球员', trophies.filter((t) => t.type === 'dpoy'), playerItem) +
+    group('🔥 最佳第六人', trophies.filter((t) => t.type === 'six_man'), playerItem) +
+    group('🌟 最佳阵容一阵', trophies.filter((t) => t.type === 'all_nba'), playerItem) +
+    group('🏅 总决赛MVP', trophies.filter((t) => t.type === 'finals_mvp'), playerItem) +
+    group('🏅 东部决赛MVP', trophies.filter((t) => t.type === 'east_mvp'), playerItem) +
+    group('🏅 西部决赛MVP', trophies.filter((t) => t.type === 'west_mvp'), playerItem);
 }
 
 async function loadHallOfFame() {
   try {
     const { legends } = await api('/api/halloffame');
     const box = $('hall-of-fame');
-    if (!legends.length) { box.innerHTML = '<span class="muted">No legends yet.</span>'; return; }
+    if (!legends.length) { box.innerHTML = `<span class="muted">${t('misc.noHof')}</span>`; return; }
     box.innerHTML = `<div class="chip-list">${legends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team} · S${l.season})</span></span>`).join('')}</div>`;
   } catch (e) { /* best-effort */ }
 }
@@ -261,7 +261,7 @@ function syncModeNote() {
     normalDiff.disabled = true;
     document.querySelector('input[name=mode][value=open]').checked = true;
     document.querySelector('input[name=difficulty][value=hard]').checked = true;
-    $('mode-note').textContent = 'Dynasty mode: salary cap on, ratings visible (no blind), up to 10 seasons.';
+    $('mode-note').textContent = '王朝模式：强制工资帽、显示评分、最多10个赛季。';
   } else {
     blindRadio.disabled = false;
     normalDiff.disabled = false;
@@ -293,14 +293,14 @@ function resumeLabel(r) {
   const phase = r.phase === 'draft' && r.offseasonPicks > 0
     ? `Rookie draft (${r.offseasonPicks} pick${r.offseasonPicks > 1 ? 's' : ''} left)`
     : ({
-        draft: `Draft (${r.rosterCount}/${r.rosterSize} picked)`,
-        lineup: 'Set your starting 5',
-        freeagency: 'Offseason free agency',
-        preseason: 'Ready for the regular season',
-        midseason: `Mid-season (${r.midseason ? r.midseason.wins + '-' + r.midseason.losses : '?'})`,
-        season: 'Season complete',
-        playoffs: `Playoffs (round ${r.playoffs ? r.playoffs.round : '?'})`,
-        finished: 'Season over — view result',
+        draft: `${t('resume.draft')} (${r.rosterCount}/${r.rosterSize})`,
+        lineup: t('resume.lineup'),
+        freeagency: t('resume.freeagency'),
+        preseason: t('resume.preseason'),
+        midseason: `${t('resume.midseason')} (${r.midseason ? r.midseason.wins + '-' + r.midseason.losses : '?'})`,
+        season: t('resume.season'),
+        playoffs: `${t('resume.playoffs')} (${r.playoffs ? r.playoffs.round : '?'})`,
+        finished: t('resume.finished'),
       }[r.phase] || r.phase);
   return `${name}${season} · ${phase}`;
 }
@@ -360,8 +360,8 @@ $('export-save').addEventListener('click', async () => {
     a.download = 'championship-run-save.json';
     a.click();
     URL.revokeObjectURL(url);
-    $('save-msg').textContent = 'Save exported.';
-  } catch (e) { $('save-msg').textContent = 'Export failed: ' + e.message; }
+    $('save-msg').textContent = '存档已导出。';
+  } catch (e) { $('save-msg').textContent = '导出失败：' + e.message; }
 });
 
 $('import-save-btn').addEventListener('click', () => $('import-save').click());
@@ -371,27 +371,27 @@ $('import-save').addEventListener('change', async (ev) => {
   try {
     const data = JSON.parse(await file.text());
     const r = await api('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    $('save-msg').textContent = 'Save restored.' + (r.skipped && r.skipped.length ? ' Skipped (not in player pool): ' + r.skipped.join(', ') : '');
+    $('save-msg').textContent = '存档已恢复。' + (r.skipped && r.skipped.length ? ' 跳过（不在球员池中）：' + r.skipped.join(', ') : '');
     ev.target.value = '';
     await goHome();
-  } catch (e) { $('save-msg').textContent = 'Import failed: ' + e.message; }
+  } catch (e) { $('save-msg').textContent = '导入失败：' + e.message; }
 });
 
 // ---------- Draft ----------
 async function loadDraft() {
   const j = await api('/api/draft');
   $('reroll-count').textContent = j.rerolls;
-  $('draft-progress').textContent = `${j.rosterCount} / ${j.rosterSize} picked`;
+  $('draft-progress').textContent = `${j.rosterCount} / ${j.rosterSize}`;
   // annual rookie draft (dynasty): full board + draft position + pick log, no re-roll
   $('reroll').hidden = j.offseason;
   if (j.offseason) {
-    $('draft-title').firstChild.textContent = 'Rookie Draft ';
-    const pos = j.userPosition ? `You pick at #${j.userPosition} · ` : '';
-    $('draft-desc').textContent = `${pos}Draft ${j.offseasonPicks} rookie${j.offseasonPicks > 1 ? 's' : ''} to replace your retirees.`;
+    $('draft-title').firstChild.textContent = t('draft.rookieTitle') + ' ';
+    const pos = j.userPosition ? `${t('draft.yourPick')} #${j.userPosition} · ` : '';
+    $('draft-desc').textContent = `${pos}${t('draft.desc')}`;
     renderDraftPicks(j.picks);
   } else {
-    $('draft-title').firstChild.textContent = 'Draft ';
-    $('draft-desc').textContent = 'Pick 1 of 5 players each round, until you have 10.';
+    $('draft-title').firstChild.textContent = t('draft.title') + ' ';
+    $('draft-desc').textContent = t('draft.desc');
     $('draft-picks').hidden = true;
   }
   state.hardMode = j.hardMode;
@@ -410,7 +410,7 @@ function renderDraftPicks(picks) {
   const box = $('draft-picks');
   if (!picks || !picks.length) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = `<b>Draft so far</b><div class="draft-picks-list">${picks.map((p) => `<span class="chip">${p.team} → ${p.player} <span class="muted">(${p.position} · OVR ${p.overall})</span></span>`).join('')}</div>`;
+  box.innerHTML = `<b>${t('draft.picksSoFar')}</b><div class="draft-picks-list">${picks.map((p) => `<span class="chip">${p.team} → ${p.player} <span class="muted">(${p.position} · OVR ${p.overall})</span></span>`).join('')}</div>`;
 }
 
 function renderCandidates(candidates) {
@@ -430,14 +430,14 @@ function renderCandidates(candidates) {
         <strong>${c.name}</strong>
         ${blind ? '' : `<span class="pos">${c.position}${c.position2 ? '/' + c.position2 : ''}</span>`}
       </div>
-      <div class="stats">Age ${c.age}</div>
+      <div class="stats">${t('lib.header.age')} ${c.age}</div>
       ${blind
-        ? '<div class="stats">Ratings hidden (blind draft)</div>'
+        ? `<div class="stats">评分已隐藏（盲选模式）</div>`
         : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b> <span class="pot">★${c.potential}</span></div>
-           <div class="stats">${c.pts} pts · ${c.trb} reb · ${c.ast} ast</div>`}
-      ${need ? '<div class="need-badge">Need ' + c.position + '</div>' : ''}
+           <div class="stats">${c.pts} ${t('misc.pts')} · ${c.trb} ${t('misc.reb')} · ${c.ast} ${t('misc.ast')}</div>`}
+      ${need ? `<div class="need-badge">${t('draft.need')} ${c.position}</div>` : ''}
       ${!blind && state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
-      <button data-id="${c.id}">Pick</button>`;
+      <button data-id="${c.id}">${t('draft.pick')}</button>`;
     card.querySelector('button').addEventListener('click', async () => {
       try {
         await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
@@ -463,11 +463,11 @@ async function loadFreeAgency() {
 
 function renderFARoster(roster) {
   const box = $('fa-roster');
-  box.innerHTML = `<b>Your roster</b> <span class="muted">(${roster.length}/10)</span>` +
+  box.innerHTML = `<b>${t('result.starters')}</b> <span class="muted">(${roster.length}/10)</span>` +
     roster.map((p) => `
       <div class="fa-row">
-        <span>${p.name} <span class="pos">${p.position}</span>${p.age != null ? ` <span class="muted">${p.age}yo</span>` : ''} <span class="muted">OVR ${p.overall}</span>${p.contract != null ? ` · <span class="muted">${p.contract}yr</span>` : ''}</span>
-        <button data-id="${p.id}" class="ghost">Release</button>
+        <span>${p.name} <span class="pos">${p.position}</span>${p.age != null ? ` <span class="muted">${p.age}岁</span>` : ''} <span class="muted">OVR ${p.overall}</span>${p.contract != null ? ` · <span class="muted">${p.contract}${t('fa.years')}</span>` : ''}</span>
+        <button data-id="${p.id}" class="ghost">${t('fa.release')}</button>
       </div>`).join('');
   box.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
     try {
@@ -485,9 +485,9 @@ function renderFACandidates(candidates) {
     card.className = 'card';
     card.innerHTML = `
       <div class="card-top"><strong>${c.name}</strong><span class="pos">${c.position}${c.position2 ? '/' + c.position2 : ''}</span></div>
-      <div class="stats">Age ${c.age} · OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
-      <div class="stats">${c.pts} pts · ${c.trb} reb · ${c.ast} ast</div>
-      <button data-id="${c.id}">Sign</button>`;
+      <div class="stats">${t('lib.header.age')} ${c.age} · OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
+      <div class="stats">${c.pts} ${t('misc.pts')} · ${c.trb} ${t('misc.reb')} · ${c.ast} ${t('misc.ast')}</div>
+      <button data-id="${c.id}">${t('fa.sign')}</button>`;
     card.querySelector('button').addEventListener('click', async () => {
       try {
         await api('/api/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
@@ -509,12 +509,12 @@ $('fa-done').addEventListener('click', async () => {
 // ---------- Offseason Recap ----------
 function renderRecap(recap) {
   const box = $('recap-body');
-  if (!recap) { box.innerHTML = '<p class="muted">Season complete.</p>'; return; }
-  const champ = recap.champion ? `<p><b>🏆 Champion:</b> ${recap.champion}</p>` : '';
-  const mvp = recap.mvp ? `<p><b>🌟 Regular-season MVP:</b> ${recap.mvp.player} <span class="muted">(${recap.mvp.team})</span></p>` : '';
+  if (!recap) { box.innerHTML = `<p class="muted">${t('recap.title')}</p>`; return; }
+  const champ = recap.champion ? `<p><b>${t('recap.champion')}:</b> ${recap.champion}</p>` : '';
+  const mvp = recap.mvp ? `<p><b>${t('recap.mvp')}:</b> ${recap.mvp.player} <span class="muted">(${recap.mvp.team})</span></p>` : '';
   const legends = recap.retiredLegends && recap.retiredLegends.length
-    ? `<div class="panel"><b>Retired this offseason:</b><div class="chip-list">${recap.retiredLegends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team})</span></span>`).join('')}</div></div>`
-    : '<p class="muted">No retirements this offseason.</p>';
+    ? `<div class="panel"><b>${t('recap.retired')}:</b><div class="chip-list">${recap.retiredLegends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team})</span></span>`).join('')}</div></div>`
+    : `<p class="muted">${t('recap.noRetirements')}</p>`;
   box.innerHTML = champ + mvp + legends;
 }
 
@@ -592,7 +592,7 @@ function renderLineup() {
     for (const p of state.roster) {
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}, ${p.age}yo${blind ? '' : `, OVR ${p.overall}`})`;
+      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}, ${p.age}岁${blind ? '' : `, OVR ${p.overall}`})`;
       if (match && p.id === match.id) opt.selected = true;
       select.appendChild(opt);
     }
@@ -662,7 +662,7 @@ $('confirm-lineup').addEventListener('click', async () => {
 
 // ---------- Season ----------
 $('simulate-season').addEventListener('click', async () => {
-  $('season-result').innerHTML = '<p class="muted">Simulating the first half…</p>';
+  $('season-result').innerHTML = `<p class="muted">${t('misc.loading')}</p>`;
   const j = await api('/api/season/start', { method: 'POST' });
   renderMidSeason(j);
 });
@@ -670,24 +670,24 @@ $('simulate-season').addEventListener('click', async () => {
 function awardsHtml(awards) {
   if (!awards) return '';
   const items = [
-    ['🏆 MVP', awards.mvp],
-    ['🛡️ Defensive Player', awards.dpoy],
-    ['🔥 Sixth Man', awards.sixMan],
+    [t('season.mvp'), awards.mvp],
+    [t('season.dpoy'), awards.dpoy],
+    [t('season.sixthMan'), awards.sixMan],
   ];
   const card = (label, a) => (a ? `
       <div class="award${a.isUser ? ' me' : ''}">
         <span class="award-label">${label}</span>
         <span class="award-name">${a.player}</span>
-        <span class="award-team muted">${a.team}${a.isUser ? ' (you)' : ''}</span>
+        <span class="award-team muted">${a.team}${a.isUser ? ' (你)' : ''}</span>
       </div>` : '');
   const firstTeam = (awards.firstTeam || []).filter(Boolean);
   const firstTeamHtml = firstTeam.length ? `
       <div class="award award-ft${firstTeam.some((a) => a.isUser) ? ' me' : ''}">
-        <span class="award-label">🌟 All-NBA First Team</span>
-        ${firstTeam.map((a) => `<div class="ft-item"><span class="ft-pos">${a.position}</span> <span class="award-name">${a.player}</span> <span class="award-team muted">${a.team}${a.isUser ? ' (you)' : ''}</span></div>`).join('')}
+        <span class="award-label">${t('season.allNba')}</span>
+        ${firstTeam.map((a) => `<div class="ft-item"><span class="ft-pos">${a.position}</span> <span class="award-name">${a.player}</span> <span class="award-team muted">${a.team}${a.isUser ? ' (你)' : ''}</span></div>`).join('')}
       </div>` : '';
   return `
-    <h3>Regular Season Awards</h3>
+    <h3>${t('season.awards')}</h3>
     <div class="awards-grid">${items.map(([label, a]) => card(label, a)).join('')}${firstTeamHtml}</div>`;
 }
 
@@ -705,13 +705,13 @@ function gameLogHtml(games) {
       <span class="gl-vs muted">${g.home ? 'vs' : '@'}</span>
       <span class="gl-opp">${g.opp}</span>
       <span class="gl-score">${g.score}–${g.oppScore}</span>
-      ${g.streak && Math.abs(g.streak) >= 3 ? `<span class="gl-streak ${g.streak > 0 ? 'hot' : 'cold'}" title="${Math.abs(g.streak)}-game ${g.streak > 0 ? 'win' : 'loss'} streak">${g.streak > 0 ? '🔥' : '🥶'}${Math.abs(g.streak)}</span>` : ''}
+      ${g.streak && Math.abs(g.streak) >= 3 ? `<span class="gl-streak ${g.streak > 0 ? 'hot' : 'cold'}" title="${Math.abs(g.streak)}${t('misc.games')} ${g.streak > 0 ? t('misc.good') : t('misc.bad')}">${g.streak > 0 ? '🔥' : '🥶'}${Math.abs(g.streak)}</span>` : ''}
       ${g.star ? `<span class="gl-star muted">⭐ ${g.star}</span>` : ''}
       ${g.milestone ? `<span class="gl-milestone">${g.milestone}</span>` : ''}
-      ${g.injuries && g.injuries.length ? `<span class="gl-injury" title="${g.injuries.map(i => `${i.name} (${i.games} games)`).join(' · ')}">🚑 ${g.injuries.map(i => i.name.split(' ').pop()).join(', ')}</span>` : ''}
+      ${g.injuries && g.injuries.length ? `<span class="gl-injury" title="${g.injuries.map(i => `${i.name} (${i.games} ${t('misc.games')})`).join(' · ')}">🚑 ${g.injuries.map(i => i.name.split(' ').pop()).join(', ')}</span>` : ''}
     </div>`).join('');
   return `
-    <h3>Season Form <span class="muted">· ${streak}-game ${lastWin ? 'win' : 'loss'} streak · ${wins}-${losses}</span></h3>
+    <h3>${t('season.form')} <span class="muted">· ${streak}${t('misc.games')} ${lastWin ? t('misc.good') : t('misc.bad')} · ${wins}-${losses}</span></h3>
     <div class="game-log-list">${rows}</div>`;
 }
 
@@ -753,17 +753,17 @@ function renderTradeUI() {
     const teams = [...new Set(aiPlayers.map((p) => p.team))];
     panel.innerHTML = `
       ${tradeNotice ? `<div class="trade-notice">${tradeNotice}</div>` : ''}
-      <div class="trade-header muted">${remainingPoints} trade point${remainingPoints === 1 ? '' : 's'} remaining this season</div>
-      <div class="trade-help muted">Rules: 1-for-1 costs 1 point · 2-for-2 costs 2 · 3-for-3 costs 3. You have 3 points total this season.</div>
+      <div class="trade-header muted">${remainingPoints} ${t('trade.pointsRemaining')} · ${t('trade.pointsThis')}</div>
+      <div class="trade-help muted">${t('trade.rules')}</div>
       <div class="trade-tabs">
-        <button class="trade-tab active" data-tab="propose">Propose</button>
-        <button class="trade-tab" data-tab="shop">Shop my players</button>
-        <button class="trade-tab" data-tab="incoming">Incoming offers</button>
+        <button class="trade-tab active" data-tab="propose">${t('trade.propose')}</button>
+        <button class="trade-tab" data-tab="shop">${t('trade.shop')}</button>
+        <button class="trade-tab" data-tab="incoming">${t('trade.incoming')}</button>
       </div>
       <div id="trade-propose"></div>
       <div id="trade-shop" hidden></div>
       <div id="trade-incoming" hidden></div>
-      ${leagueTradeLog && leagueTradeLog.length ? `<details class="trade-log"><summary>League trade log (${leagueTradeLog.length})</summary><div class="trade-log-list">${leagueTradeLog.map((x) => `<div>${x}</div>`).join('')}</div></details>` : ''}`;
+      ${leagueTradeLog && leagueTradeLog.length ? `<details class="trade-log"><summary>${t('trade.leagueLog')} (${leagueTradeLog.length})</summary><div class="trade-log-list">${leagueTradeLog.map((x) => `<div>${x}</div>`).join('')}</div></details>` : ''}`;
     panel.querySelectorAll('.trade-tab').forEach((b) => b.addEventListener('click', () => {
       panel.querySelectorAll('.trade-tab').forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
@@ -773,13 +773,13 @@ function renderTradeUI() {
     renderPropose(myRoster, aiPlayers, teams);
     renderShop(myRoster);
   }).catch((e) => {
-    panel.innerHTML = `<p class="bad">Trade window failed to load: ${e.message}</p>`;
+    panel.innerHTML = `<p class="bad">${t('trade.rejected')}: ${e.message}</p>`;
   });
 }
 
 function renderPropose(myRoster, aiPlayers, teams) {
   const box = $('trade-propose');
-  const myList = tradeChecklist(myRoster, 'Your players (1-3)');
+  const myList = tradeChecklist(myRoster, t('trade.yourPlayers'));
   const teamSel = document.createElement('select');
   teamSel.innerHTML = teams.map((t) => `<option>${t}</option>`).join('');
   const aiList = document.createElement('div');
@@ -787,19 +787,19 @@ function renderPropose(myRoster, aiPlayers, teams) {
   const refreshAi = () => {
     const tm = teamSel.value;
     const blind = isBlind();
-    aiList.innerHTML = `<label class="trade-label">${tm} players (pick same count)</label>` + aiPlayers.filter((p) => p.team === tm).map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span></label>`).join('');
+    aiList.innerHTML = `<label class="trade-label">${tm} ${t('trade.pickSame')}</label>` + aiPlayers.filter((p) => p.team === tm).map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span></label>`).join('');
   };
   teamSel.addEventListener('change', refreshAi);
   refreshAi();
   const msg = document.createElement('div');
   msg.className = 'muted trade-msg';
   const btn = document.createElement('button');
-  btn.textContent = 'Propose trade';
+  btn.textContent = t('trade.proposeBtn');
   btn.className = 'primary';
   btn.addEventListener('click', () => {
     const myIds = myList.checked();
     const aiIds = [...aiList.querySelectorAll('input:checked')].map((c) => +c.value);
-    if (!myIds.length || myIds.length !== aiIds.length) { msg.textContent = 'Pick the same number (1-3) on both sides.'; msg.className = 'bad trade-msg'; return; }
+    if (!myIds.length || myIds.length !== aiIds.length) { msg.textContent = t('trade.needSame'); msg.className = 'bad trade-msg'; return; }
     doTrade(myIds, aiIds, msg);
   });
   box.innerHTML = '';
@@ -808,16 +808,16 @@ function renderPropose(myRoster, aiPlayers, teams) {
 
 function renderShop(myRoster) {
   const box = $('trade-shop');
-  const myList = tradeChecklist(myRoster, 'Shop these players (1-3)');
+  const myList = tradeChecklist(myRoster, t('trade.pickPlayers'));
   const offersBox = document.createElement('div');
   const msg = document.createElement('div');
   msg.className = 'muted trade-msg';
   const btn = document.createElement('button');
-  btn.textContent = 'Get offers';
+  btn.textContent = t('trade.shopBtn');
   btn.className = 'primary';
   btn.addEventListener('click', async () => {
     const ids = myList.checked();
-    if (!ids.length) { msg.textContent = 'Pick 1-3 players first.'; msg.className = 'bad trade-msg'; return; }
+    if (!ids.length) { msg.textContent = '请先选择1-3名球员。'; msg.className = 'bad trade-msg'; return; }
     try {
       const j = await api('/api/trade/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds: ids }) });
       const blind = isBlind();
@@ -825,8 +825,8 @@ function renderShop(myRoster) {
         <div class="trade-offer">
           <div class="trade-offer-head">${o.aiTeam} offers${blind ? '' : ` <span class="muted">(${o.aiTotal} OVR)</span>`}</div>
           <div class="muted">${o.aiPlayers.map((p) => `${p.name}${blind ? '' : ` (${p.overall})`}`).join(', ')}</div>
-          <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">Accept</button>
-        </div>`).join('') : '<p class="muted">No offers.</p>';
+          <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">${t('trade.acceptBtn')}</button>
+        </div>`).join('') : `<p class="muted">暂无报价。</p>`;
       offersBox.querySelectorAll('.accept').forEach((b) => b.addEventListener('click', () => {
         doTrade(JSON.parse(b.dataset.my), JSON.parse(b.dataset.ai), msg, true);
       }));
@@ -841,12 +841,12 @@ function renderShop(myRoster) {
 
 function renderIncoming() {
   const box = $('trade-incoming');
-  box.innerHTML = '<p class="muted">Loading…</p>';
+  box.innerHTML = `<p class="muted">${t('misc.loading')}</p>`;
   api('/api/trade/proposals').then(({ proposals }) => {
     const msg = document.createElement('div');
     msg.className = 'muted trade-msg';
     box.innerHTML = '';
-    if (!proposals.length) { box.innerHTML = '<p class="muted">No incoming proposals.</p>'; return; }
+    if (!proposals.length) { box.innerHTML = `<p class="muted">暂无收到报价。</p>`; return; }
     for (const p of proposals) {
       const div = document.createElement('div');
       div.className = 'trade-offer';
@@ -854,7 +854,7 @@ function renderIncoming() {
       div.innerHTML = `
         <div class="trade-offer-head">${p.aiTeam} wants <span class="muted">${p.myPlayers.map((x) => `${x.name}${blind ? '' : ` (${x.overall})`}`).join(', ')}</span></div>
         <div class="muted">Offers ${p.aiPlayers.map((x) => `${x.name}${blind ? '' : ` (${x.overall})`}`).join(', ')}</div>
-        <button class="accept">Accept</button>`;
+        <button class="accept">${t('trade.acceptBtn')}</button>`;
       div.querySelector('.accept').addEventListener('click', () => {
         doTrade(p.myPlayers.map((x) => x.id), p.aiPlayers.map((x) => x.id), msg, true);
       });
@@ -879,14 +879,14 @@ function teamRosterHtml(t) {
 function standingsHtml(east, west) {
   const blind = isBlind();
   const confTable = (title, teams) => `
-    <h3>${title} Conference</h3>
+    <h3>${title === 'Eastern' ? t('standings.east') : t('standings.west')}</h3>
     <div class="table-scroll"><table>
       <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th>${blind ? '' : '<th>Str</th>'}</tr></thead>
       <tbody>${teams.map((t, i) => `
         <tr${t.isUser ? ' class="me"' : ''}>
           <td>${i + 1}</td>
           <td>
-            <details><summary>${t.name}${t.isUser ? ' (you)' : ''}</summary>
+            <details><summary>${t.name}${t.isUser ? ' (你)' : ''}</summary>
               <div class="roster">${teamRosterHtml(t)}</div>
             </details>
           </td>
@@ -899,18 +899,18 @@ function standingsHtml(east, west) {
 function renderMidSeason(j) {
   state.midSeason = j;
   const avgTable = `
-    <h3>Your team's first-half averages (${j.games} games)</h3>
+    <h3>${t('season.firstHalf')} (${j.games} ${t('misc.games')})</h3>
     <div class="table-scroll"><table>
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table></div>`;
   $('season-result').innerHTML = `
-    <div class="midseason-banner">🏀 Mid-season break — <b>${j.wins}-${j.losses}</b> after ${j.games} games</div>
-    <div class="midseason-help muted">You can now adjust your lineup, make trades, then simulate the second half.</div>
+    <div class="midseason-banner">🏀 ${t('season.midseason')} — <b>${j.wins}-${j.losses}</b> ${t('season.afterGames')} ${j.games} ${t('misc.games')}</div>
+    <div class="midseason-help muted">${t('season.midseasonHelp')}</div>
     <div class="row" style="margin-top:8px">
-      <button id="adjust-mid" class="ghost">🎯 Adjust lineup</button>
-      <button id="trade-mid" class="ghost">🔄 Trade window</button>
-      <button id="finish-season" class="primary">▶ Simulate 2nd half</button>
+      <button id="adjust-mid" class="ghost">🎯 ${t('season.adjustLineup')}</button>
+      <button id="trade-mid" class="ghost">🔄 ${t('season.tradeWindow')}</button>
+      <button id="finish-season" class="primary">▶ ${t('season.simulateSecond')}</button>
     </div>
     <div id="trade-panel" class="trade-panel" hidden></div>
     ${gameLogHtml(j.gameLog)}
@@ -919,7 +919,7 @@ function renderMidSeason(j) {
   $('adjust-mid')?.addEventListener('click', () => { show('lineup'); loadLineup(); });
   $('trade-mid')?.addEventListener('click', () => renderTradeUI());
   $('finish-season')?.addEventListener('click', async () => {
-    $('season-result').innerHTML = '<p class="muted">Simulating the second half…</p>';
+    $('season-result').innerHTML = `<p class="muted">${t('misc.loading')}</p>`;
     const j2 = await api('/api/season/finish', { method: 'POST' });
     state.midSeason = null;
     renderSeason(j2);
@@ -930,15 +930,15 @@ function renderSeason(j) {
   $('simulate-season').hidden = true;
   const blind = isBlind();
   const avgTable = `
-    <h3>Your team's 82-game averages</h3>
+    <h3>${t('season.averages')}</h3>
     <div class="table-scroll"><table>
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th>${blind ? '' : '<th>EPM</th>'}<th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}${halfBadge(p.half)}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td>${blind ? '' : `<td>${fmt(p.epm)}</td>`}<td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table></div>`;
 
   const playoffBtn = j.madePlayoffs
-    ? `<button id="go-playoffs" class="primary" style="margin-top:16px">Continue to Playoffs</button>`
-    : `<p class="muted" style="margin-top:16px">You missed the playoffs. <button id="go-home-missed" class="ghost">Back to Home</button></p>`;
+    ? `<button id="go-playoffs" class="primary" style="margin-top:16px">${t('season.toPlayoffs')}</button>`
+    : `<p class="muted" style="margin-top:16px">${t('season.missedPlayoffs')} <button id="go-home-missed" class="ghost">${t('season.backHome')}</button></p>`;
 
   $('season-result').innerHTML =
     (blind ? `<p class="muted">${j.teamName} (${j.conference})</p>` : `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>`) +
@@ -953,13 +953,13 @@ function renderSeason(j) {
 // ---------- Playoffs ----------
 async function startPlayoffs() {
   show('playoffs');
-  $('playoffs-body').innerHTML = '<p class="muted">Setting up the bracket…</p>';
+  $('playoffs-body').innerHTML = `<p class="muted">${t('playoffs.settingUp')}</p>`;
   try {
     const j = await api('/api/playoffs/start', { method: 'POST' });
     state.playoffRound = j.round;
     renderMatchups(j.matchups, j.round);
   } catch (e) {
-    $('playoffs-body').innerHTML = `<p class="muted">${e.message}</p><button id="back-home" class="ghost">Back to Home</button>`;
+    $('playoffs-body').innerHTML = `<p class="muted">${e.message}</p><button id="back-home" class="ghost">${t('season.backHome')}</button>`;
     $('back-home').addEventListener('click', () => { goHome(); });
   }
 }
@@ -993,16 +993,16 @@ function renderBracket(rounds, nextMatchups) {
 
 function renderMatchups(matchups, round) {
   $('playoffs-body').innerHTML = `
-    <h3>Round ${round}</h3>
+    <h3>${t('playoffs.round')} ${round}</h3>
     <div class="bracket">${matchups.map((m) => `
       <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
         <div class="series-teams">
-          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
+          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (你)' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
           <span class="vs">vs</span>
-          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
+          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (你)' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
         </div>
       </div>`).join('')}</div>
-    <button id="simulate-round" class="primary">Simulate Round ${round}</button>`;
+    <button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${round}</button>`;
 
   $('simulate-round').addEventListener('click', async () => {
     const j = await api('/api/playoffs/round', { method: 'POST' });
@@ -1017,31 +1017,31 @@ function renderRoundResults(j) {
 
   const resultsHtml = j.results.map((s) => `
     <div class="series${s.isUserSeries ? ' user' : ''}">
-      <div class="series-head"><span class="win">${s.winner}</span> def. ${s.loser} <strong>${s.wins}</strong>${s.userIsWinner ? ' <span class="good">— YOU WON</span>' : (s.isUserSeries ? ' <span class="bad">— you lost</span>' : '')}</div>
-      ${s.mvp ? `<div class="mvp-line">🏅 MVP: ${s.mvp}</div>` : ''}
+      <div class="series-head"><span class="win">${s.winner}</span> ${t('playoffs.def')} ${s.loser} <strong>${s.wins}</strong>${s.userIsWinner ? ` <span class="good">— ${t('playoffs.youWon')}</span>` : (s.isUserSeries ? ` <span class="bad">— ${t('playoffs.youLost')}</span>` : '')}</div>
+      ${s.mvp ? `<div class="mvp-line">${t('playoffs.mvp')}: ${s.mvp}</div>` : ''}
       <div class="games">${s.games.map((g) => `G${g.g}: ${g.aScore}-${g.bScore}`).join(' · ')}</div>
-      <details class="roster-details"><summary>Team rosters (10 each)</summary>
+      <details class="roster-details"><summary>${t('playoffs.seriesRosters')}</summary>
         <div class="roster-team">${s.aName}${s.winner === s.aName ? ' 🏆' : ''}<br>${s.aRoster.map(rosterLine).join('<br>')}</div>
         <div class="roster-team">${s.bName}${s.winner === s.bName ? ' 🏆' : ''}<br>${s.bRoster.map(rosterLine).join('<br>')}</div>
       </details>
       ${s.aStats && s.bStats ? `
-        <details class="roster-details"><summary>Player averages (series)</summary>
+        <details class="roster-details"><summary>${t('playoffs.playerAverages')}</summary>
           <div class="roster-team"><b>${s.aName}</b>${statTable(s.aStats)}</div>
           <div class="roster-team"><b>${s.bName}</b>${statTable(s.bStats)}</div>
         </details>` : ''}
     </div>`).join('');
 
-  let html = `<h3>Playoff Bracket</h3>${renderBracket(j.rounds, j.nextMatchups)}<h3>Round ${j.round} Results</h3><div class="bracket">${resultsHtml}</div>`;
+  let html = `<h3>${t('playoffs.bracket')}</h3>${renderBracket(j.rounds, j.nextMatchups)}<h3>${t('playoffs.round')} ${j.round} ${t('playoffs.roundResult')}</h3><div class="bracket">${resultsHtml}</div>`;
 
   if (j.champion) {
     const isUserChamp = j.results[0]?.winnerIsUser;
-    html += `<div class="result-banner">${isUserChamp ? '🏆 You won the championship!' : `🏆 ${j.champion} won the championship`}</div>`;
-    html += `<button id="to-result" class="primary">See Result</button>`;
+    html += `<div class="result-banner">${isUserChamp ? `🏆 ${t('playoffs.wonChampionship')}` : `🏆 ${j.champion} ${t('playoffs.wonChampionship')}`}</div>`;
+    html += `<button id="to-result" class="primary">${t('playoffs.seeResult')}</button>`;
   } else {
     if (j.userEliminated) {
-      html += `<p class="muted eliminated-note">You were eliminated in round ${j.userEliminatedRound}. The playoffs continue without you.</p>`;
+      html += `<p class="muted eliminated-note">${t('playoffs.eliminated')} ${j.userEliminatedRound} ${t('playoffs.eliminatedEnd')}</p>`;
     }
-    html += `<button id="next-round" class="primary">Simulate Round ${j.nextRound}</button>`;
+    html += `<button id="next-round" class="primary">${t('playoffs.simulateRound')} ${j.nextRound}</button>`;
   }
 
   $('playoffs-body').innerHTML = html;
@@ -1060,16 +1060,16 @@ function showResult() {
     const champ = r.playoff ? r.playoff.champion : null;
     const eliminated = r.playoff ? r.playoff.userEliminated : false;
     const isUserChamp = !!champ && !eliminated;
-    const banner = isUserChamp ? '🏆 CHAMPIONS!' : (eliminated ? `Eliminated in round ${r.playoff.userEliminatedRound}` : `${champ} won the championship`);
-    const sub = isUserChamp ? `${r.teamName} won the NBA Finals. Dynasty material.` : (eliminated ? 'Your run ended. Rebuild and try again.' : `${champ} are the champions.`);
+    const banner = isUserChamp ? `🏆 ${t('result.champions')}` : (eliminated ? `${t('result.eliminated')} ${r.playoff.userEliminatedRound} ${t('result.eliminatedRound')}` : `${champ} ${t('result.otherChampOther')}`);
+    const sub = isUserChamp ? `${r.teamName} ${t('result.wonTitle')} ${t('result.dynastyMaterial')}` : (eliminated ? t('result.rebuild') : `${champ} ${t('result.otherChampOther')}`);
     const record = r.season ? `${r.season.wins}-${r.season.losses}` : '';
     const myAwards = [];
     if (r.awards) {
-      for (const [label, key] of [['MVP', 'mvp'], ['DPOY', 'dpoy'], ['Sixth Man', 'sixMan']]) {
+      for (const [label, key] of [[t('season.mvp'), 'mvp'], [t('season.dpoy'), 'dpoy'], [t('season.sixthMan'), 'sixMan']]) {
         const a = r.awards[key];
         if (a && a.isUser) myAwards.push(`${label}: ${a.player}`);
       }
-      for (const a of (r.awards.firstTeam || [])) if (a && a.isUser) myAwards.push(`All-NBA: ${a.player}`);
+      for (const a of (r.awards.firstTeam || [])) if (a && a.isUser) myAwards.push(`${t('season.allNba')}: ${a.player}`);
     }
     const starters = r.roster.filter((p) => p.role === 'starter');
     const bench = r.roster.filter((p) => p.role !== 'starter');
@@ -1078,19 +1078,19 @@ function showResult() {
 
     // dynasty progress + history
     const isDynasty = r.gameMode === 'dynasty';
-    const seasonHeader = isDynasty ? `${r.seasonLabel} · ${r.seasonNumber}/${r.dynastyMax}` : `${r.seasonLabel} Season`;
+    const seasonHeader = isDynasty ? `${r.seasonLabel} · ${r.seasonNumber}/${r.dynastyMax}` : `${r.seasonLabel}`;
     const history = (r.seasonHistory || []);
     const historyHtml = history.length ? `
       <div class="dynasty-history">
-        <h3>Dynasty History</h3>
+        <h3>${t('result.dynastyHistory')}</h3>
         <div class="table-scroll"><table>
-          <thead><tr><th>Season</th><th>Record</th><th>Champion</th><th>MVP</th><th>Result</th></tr></thead>
+          <thead><tr><th>${t('history.season')}</th><th>${t('history.record')}</th><th>${t('history.champion')}</th><th>${t('history.mvp')}</th><th>${t('history.result')}</th></tr></thead>
           <tbody>${history.map((h) => `<tr>
             <td class="num">${h.seasonLabel || h.season}</td>
             <td>${h.wins}-${h.losses}</td>
-            <td>${h.champion ? (h.userChampion ? `<b>${h.champion}</b> (you)` : h.champion) : '—'}</td>
+            <td>${h.champion ? (h.userChampion ? `<b>${h.champion}</b> (你)` : h.champion) : '—'}</td>
             <td>${h.mvp || '—'}</td>
-            <td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td>
+            <td>${h.result === 'champion' ? t('history.championLabel') : h.result === 'missed_playoffs' ? t('history.missedPlayoffs') : h.result.startsWith('eliminated') ? `${t('history.eliminated')}${h.result.split('_r')[1]}` : t('history.playoffs')}</td>
           </tr>`).join('')}</tbody>
         </table></div>
       </div>` : '';
@@ -1098,26 +1098,26 @@ function showResult() {
     // next-season only for dynasty, and only before the cap; summary always available
     const canNext = isDynasty && r.seasonNumber < r.dynastyMax;
     const actions = `
-      ${canNext ? `<button id="next-season" class="primary">▶ Next Season</button>` : (isDynasty ? `<p class="muted">🏆 Dynasty complete — ${r.dynastyMax} seasons played.</p>` : '')}
-      <button id="print-summary" class="primary">🖨️ Save / Print Summary</button>
-      <button id="back-home-final" class="ghost">Back to Home</button>`;
+      ${canNext ? `<button id="next-season" class="primary">▶ ${t('result.nextSeason')}</button>` : (isDynasty ? `<p class="muted">🏆 ${t('result.dynastyComplete')} ${r.dynastyMax} ${t('result.seasons')}</p>` : '')}
+      <button id="print-summary" class="primary">🖨️ ${t('result.printSummary')}</button>
+      <button id="back-home-final" class="ghost">${t('result.backHome')}</button>`;
 
     $('result-body').innerHTML = `
       <div class="result-banner">${banner}</div>
       <p class="muted">${sub}</p>
       <div class="result-stats">
         <div class="rs"><span class="rs-v">${record}</span><span class="rs-k">${seasonHeader}</span></div>
-        ${isDynasty ? `<div class="rs"><span class="rs-v">${history.filter(h => h.result === 'champion').length}</span><span class="rs-k">Championships</span></div>` : ''}
-        ${myAwards.length ? `<div class="rs"><span class="rs-v">${myAwards.length}</span><span class="rs-k">Awards won</span></div>` : ''}
+        ${isDynasty ? `<div class="rs"><span class="rs-v">${history.filter(h => h.result === 'champion').length}</span><span class="rs-k">${t('result.championships')}</span></div>` : ''}
+        ${myAwards.length ? `<div class="rs"><span class="rs-v">${myAwards.length}</span><span class="rs-k">${t('result.awardsWon')}</span></div>` : ''}
       </div>
       ${myAwards.length ? `<div class="result-awards">${myAwards.map((a) => `<span class="chip">${a}</span>`).join('')}</div>` : ''}
       ${historyHtml}
       <div class="result-roster">
-        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${p.contract != null ? ` <span class="muted">· ${p.contract}yr</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${p.potential ? ` <span class="pot">★${p.potential}</span>` : ''}${growthBadge(p)}</span>`).join('')}</div></div>
-        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${p.contract != null ? ` <span class="muted">· ${p.contract}yr</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${p.potential ? ` <span class="pot">★${p.potential}</span>` : ''}${growthBadge(p)}</span>`).join('')}</div></div>
+        <div><b>${t('result.starters')}</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}岁</span>${p.contract != null ? ` <span class="muted">· ${p.contract}${t('fa.years')}</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${p.potential ? ` <span class="pot">★${p.potential}</span>` : ''}${growthBadge(p)}</span>`).join('')}</div></div>
+        <div><b>${t('result.bench')}</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}岁</span>${p.contract != null ? ` <span class="muted">· ${p.contract}${t('fa.years')}</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${p.potential ? ` <span class="pot">★${p.potential}</span>` : ''}${growthBadge(p)}</span>`).join('')}</div></div>
       </div>
-      ${top.length ? `<div class="result-top"><b>Top scorers</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} pts</span></span>`).join('')}</div></div>` : ''}
-      ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>Team leaders</b><div class="chip-list">${
+      ${top.length ? `<div class="result-top"><b>${t('result.topScorers')}</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} ${t('misc.pts')}</span></span>`).join('')}</div></div>` : ''}
+      ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>${t('result.teamLeaders')}</b><div class="chip-list">${
         [['pts', 'PTS'], ['trb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK']].map(([k, label]) => {
           const l = leaderOf(k);
           return l ? `<span class="chip">${label}: ${l.name} <span class="muted">${fmt(l[k])}</span></span>` : '';
@@ -1144,18 +1144,18 @@ function showResult() {
 // download it as a .html file the user can open/print/save as PDF.
 function printSummary(r) {
   const isDynasty = r.gameMode === 'dynasty';
-  const title = isDynasty ? `${r.teamName} — Dynasty (${r.seasonNumber}/${r.dynastyMax} · ${r.seasonLabel})` : `${r.teamName} — ${r.seasonLabel} Season Summary`;
+  const title = isDynasty ? `${r.teamName} — ${t('summary.dynasty')} (${r.seasonNumber}/${r.dynastyMax} · ${r.seasonLabel})` : `${r.teamName} — ${r.seasonLabel} ${t('summary.seasonSummary')}`;
   const history = r.seasonHistory || [];
   const historyRows = history.map((h) => `
-    <tr><td>${h.seasonLabel || 'Season ' + h.season}</td><td>${h.wins}-${h.losses}</td><td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td></tr>`).join('');
+    <tr><td>${h.seasonLabel || t('history.season') + ' ' + h.season}</td><td>${h.wins}-${h.losses}</td><td>${h.result === 'champion' ? t('history.championLabel') : h.result === 'missed_playoffs' ? t('history.missedPlayoffs') : h.result.startsWith('eliminated') ? `${t('history.eliminated')}${h.result.split('_r')[1]}` : t('history.playoffs')}</td></tr>`).join('');
 
   const awards = [];
   if (r.awards) {
-    for (const [label, key] of [['MVP', 'mvp'], ['DPOY', 'dpoy'], ['Sixth Man', 'sixMan']]) {
+    for (const [label, key] of [[t('season.mvp'), 'mvp'], [t('season.dpoy'), 'dpoy'], [t('season.sixthMan'), 'sixMan']]) {
       const a = r.awards[key];
       if (a && a.isUser) awards.push(`${label}: ${a.player}`);
     }
-    for (const a of (r.awards.firstTeam || [])) if (a && a.isUser) awards.push(`All-NBA: ${a.player}`);
+    for (const a of (r.awards.firstTeam || [])) if (a && a.isUser) awards.push(`${t('season.allNba')}: ${a.player}`);
   }
   const starters = (r.roster || []).filter((p) => p.role === 'starter');
   const bench = (r.roster || []).filter((p) => p.role !== 'starter');
@@ -1177,12 +1177,12 @@ function printSummary(r) {
     .footer { margin-top: 32px; font-size: 12px; color: #888; }
   </style></head><body>
     <h1>🏀 ${title}</h1>
-    <p class="meta">${isDynasty ? `Dynasty mode · ${history.filter(h => h.result === 'champion').length} championship${history.filter(h => h.result === 'champion').length === 1 ? '' : 's'}` : (r.season ? `${r.season.wins}-${r.season.losses}` : '')}</p>
-    ${historyRows ? `<h2>Season History</h2><table><thead><tr><th>Season</th><th>Record</th><th>Result</th></tr></thead><tbody>${historyRows}</tbody></table>` : ''}
-    ${awards.length ? `<h2>Awards</h2><ul>${awards.map((a) => `<li>${a}</li>`).join('')}</ul>` : ''}
-    ${(r.roster || []).length ? `<h2>Roster</h2><table><thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th></tr></thead><tbody>${[...starters, ...bench].map(rosterRow).join('')}</tbody></table>` : ''}
-    ${leaders ? `<h2>Team Leaders</h2><ul>${leaders}</ul>` : ''}
-    <p class="footer">Championship Run · generated ${new Date().toLocaleDateString()}</p>
+    <p class="meta">${isDynasty ? `${t('summary.dynasty')} · ${history.filter(h => h.result === 'champion').length} ${t('summary.championships')}` : (r.season ? `${r.season.wins}-${r.season.losses}` : '')}</p>
+    ${historyRows ? `<h2>${t('summary.seasonHistory')}</h2><table><thead><tr><th>${t('history.season')}</th><th>${t('history.record')}</th><th>${t('history.result')}</th></tr></thead><tbody>${historyRows}</tbody></table>` : ''}
+    ${awards.length ? `<h2>${t('summary.awards')}</h2><ul>${awards.map((a) => `<li>${a}</li>`).join('')}</ul>` : ''}
+    ${(r.roster || []).length ? `<h2>${t('summary.roster')}</h2><table><thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th></tr></thead><tbody>${[...starters, ...bench].map(rosterRow).join('')}</tbody></table>` : ''}
+    ${leaders ? `<h2>${t('summary.teamLeaders')}</h2><ul>${leaders}</ul>` : ''}
+    <p class="footer">冠军之路 · ${t('summary.generated')} ${new Date().toLocaleDateString()}</p>
   </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html' });
@@ -1198,17 +1198,17 @@ async function renderDraftRoster() {
   const { roster } = await api('/api/roster');
   state.roster = roster;
   const box = $('draft-roster');
-  if (!roster.length) { box.innerHTML = '<span class="muted">No players drafted yet.</span>'; return; }
+  if (!roster.length) { box.innerHTML = `<span class="muted">${t('misc.savesNone')}</span>`; return; }
   const blind = isBlind();
   const posCount = {};
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needs = ['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]);
   const strength = computeStrength(roster, [], true);
   box.innerHTML = `
-    <div class="roster-head">Your roster <span class="muted">(${roster.length}/10)</span>
+    <div class="roster-head">${t('result.starters')} <span class="muted">(${roster.length}/10)</span>
       ${blind ? '' : `<span class="strength-inline">· 💪 ${strength.toFixed(1)}</span>`}
-      ${blind ? '' : (needs.length ? `<span class="needs">· Need: ${needs.map((n) => `<b>${n}</b>`).join(' ')}</span>` : '<span class="good">· Positions covered ✓</span>')}
-      ${state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M spent</span>` : ''}
+      ${blind ? '' : (needs.length ? `<span class="needs">· ${t('draft.need')}: ${needs.map((n) => `<b>${n}</b>`).join(' ')}</span>` : `<span class="good">· ✓</span>`)}
+      ${state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M</span>` : ''}
     </div>
     <div class="chip-list">${roster.map((p) => `<span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}</span>`).join('')}</div>`;
 }
@@ -1221,12 +1221,12 @@ function buildMatchupTeam(box, prefix, defaultIds) {
   const selected = []; // player ids, in add order
 
   const title = document.createElement('h3');
-  title.textContent = `Team ${prefix.toUpperCase()}`;
+  title.textContent = `${prefix.toUpperCase()} 队`;
   box.appendChild(title);
 
   const search = document.createElement('input');
   search.type = 'text';
-  search.placeholder = 'Search player name…';
+  search.placeholder = '搜索球员名字…';
   search.className = 'mm-search';
   box.appendChild(search);
 
@@ -1235,7 +1235,7 @@ function buildMatchupTeam(box, prefix, defaultIds) {
   box.appendChild(results);
 
   const addBtn = document.createElement('button');
-  addBtn.textContent = 'Add selected';
+  addBtn.textContent = '添加选中';
   addBtn.className = 'ghost';
   box.appendChild(addBtn);
 
@@ -1325,7 +1325,7 @@ async function initMatchup() {
   } catch (e) {
     console.error('initMatchup failed:', e);
     const panel = $('matchup-panel');
-    if (panel) panel.insertAdjacentHTML('afterbegin', `<p class="muted">Failed to load players: ${e.message}</p>`);
+    if (panel) panel.insertAdjacentHTML('afterbegin', `<p class="muted">${t('misc.loading')} ${e.message}</p>`);
   }
 }
 
@@ -1343,7 +1343,7 @@ $('mm-simulate').addEventListener('click', async () => {
     mode: $('mm-mode').value,
     times: +$('mm-times').value,
   };
-  $('mm-result').innerHTML = '<p class="muted">Simulating…</p>';
+  $('mm-result').innerHTML = `<p class="muted">${t('misc.loading')}</p>`;
   try {
     const j = await api('/api/matchup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     renderMatchupResult(j);
@@ -1353,14 +1353,14 @@ $('mm-simulate').addEventListener('click', async () => {
 function renderMatchupResult(j) {
   const teamTable = (name, stats, wins, losses, avgScore) => `
     <div class="mm-team-result">
-      <div class="mm-team-head"><b>${name}</b> <span class="muted">${wins}-${losses} · avg ${avgScore} pts</span></div>
+      <div class="mm-team-head"><b>${name}</b> <span class="muted">${wins}-${losses} · 场均 ${avgScore} ${t('misc.pts')}</span></div>
       <div class="table-scroll"><table><thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th></tr></thead>
       <tbody>${stats.slice().sort((a, b) => b.pts - a.pts).map((s) => `<tr><td>${s.name}</td><td>${s.position}</td><td class="num">${fmt(s.pts)}</td><td class="num">${fmt(s.trb)}</td><td class="num">${fmt(s.ast)}</td><td class="num">${fmt(s.stl)}</td><td class="num">${fmt(s.blk)}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
   $('mm-result').innerHTML = `
-    <h3 style="margin-top:20px">Matchup Result <span class="muted">(${j.times} games · ${j.mode} mode)</span></h3>
-    <div class="mm-scoreline"><b>Team A</b> <span>${j.aWins}</span> — <span>${j.bWins}</span> <b>Team B</b></div>
-    <div class="mm-result-grid">${teamTable('Team A', j.aStats, j.aWins, j.bWins, j.aAvgScore)}${teamTable('Team B', j.bStats, j.bWins, j.aWins, j.bAvgScore)}</div>`;
+    <h3 style="margin-top:20px">对战结果 <span class="muted">(${j.times} 场 · ${j.mode === 'playoff' ? '季后赛' : '常规赛'})</span></h3>
+    <div class="mm-scoreline"><b>A队</b> <span>${j.aWins}</span> — <span>${j.bWins}</span> <b>B队</b></div>
+    <div class="mm-result-grid">${teamTable('A队', j.aStats, j.aWins, j.bWins, j.aAvgScore)}${teamTable('B队', j.bStats, j.bWins, j.aWins, j.bAvgScore)}</div>`;
 }
 
 // ---------- init ----------

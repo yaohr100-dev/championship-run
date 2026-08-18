@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Championship Run</title>
+  <title>冠军之路</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,157 +13,146 @@
       <div class="brand">
         <span class="logo">🏀</span>
         <div>
-          <h1>Championship Run</h1>
-          <span class="tagline">NBA Roster-Building Simulation</span>
+          <h1 data-i18n="brand.title">冠军之路</h1>
+          <span class="tagline" data-i18n="brand.tagline">NBA 阵容构建模拟</span>
         </div>
       </div>
-      <button id="home-btn" class="ghost">Home</button>
+      <button id="home-btn" class="ghost" data-i18n="nav.home">首页</button>
     </div>
   </header>
   <div id="progress-bar">
     <div class="progress-track">
-      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label">Draft</span></div>
-      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label">Lineup</span></div>
-      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label">Season</span></div>
-      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label">Playoffs</span></div>
-      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label">Result</span></div>
+      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label" data-i18n="step.draft">选秀</span></div>
+      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label" data-i18n="step.lineup">阵容</span></div>
+      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label" data-i18n="step.season">赛季</span></div>
+      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label" data-i18n="step.playoffs">季后赛</span></div>
+      <div class="progress-step"><div class="progress-dot"></div><span class="progress-label" data-i18n="step.result">结果</span></div>
     </div>
   </div>
 
   <main>
     <!-- 1. Home -->
     <section id="home">
-      <!-- Continue last run -->
       <div class="panel section-gap" id="continue-panel" hidden>
-        <h2>⏯ Continue Last Run</h2>
+        <h2>⏯ <span data-i18n="home.continue">继续上次游戏</span></h2>
         <p id="continue-summary" class="muted" style="margin-bottom:12px"></p>
-        <button id="continue-run" class="primary">Continue</button>
+        <button id="continue-run" class="primary" data-i18n="home.continueBtn">继续</button>
       </div>
 
-      <!-- Quick-action card grid -->
       <div class="home-grid" style="margin-bottom:20px">
-        <!-- New Run (always visible) -->
         <div class="home-card accent" id="new-run-card">
           <span class="hc-icon">⚡</span>
-          <span class="hc-title">Start a New Run</span>
-          <span class="hc-desc">Pick your team, build a roster, compete for a championship.</span>
+          <span class="hc-title" data-i18n="home.newRun">开始新游戏</span>
+          <span class="hc-desc" data-i18n="home.newRun.desc">选择球队、组建阵容、争夺总冠军。</span>
         </div>
-        <!-- Backup -->
         <div class="home-card" onclick="this.querySelector('details').open = !this.querySelector('details').open">
           <span class="hc-icon">💾</span>
-          <span class="hc-title">Save &amp; Backup</span>
-          <span class="hc-desc">Export, import, or switch sessions.</span>
-          <details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px">Manage saves…</summary>
+          <span class="hc-title" data-i18n="home.save">存档与备份</span>
+          <span class="hc-desc" data-i18n="home.save.desc">导出、导入或切换存档。</span>
+          <details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px" data-i18n="home.manageSaves">管理存档…</summary>
             <div class="row" style="margin-top:8px">
-              <button id="export-save" class="ghost" style="font-size:12px">⬇ Export</button>
-              <button id="import-save-btn" class="ghost" style="font-size:12px">⬆ Import</button>
+              <button id="export-save" class="ghost" style="font-size:12px" data-i18n="save.export">⬇ 导出存档</button>
+              <button id="import-save-btn" class="ghost" style="font-size:12px" data-i18n="save.import">⬆ 导入存档</button>
               <input id="import-save" type="file" accept=".json,application/json" hidden>
             </div>
             <div id="save-msg" class="muted" style="margin-top:6px"></div>
-            <div class="muted" style="margin-top:6px;font-size:11px">Session: <input id="session-id" readonly style="width:100%;font-size:11px;margin-top:3px">
-              <button id="copy-session" class="ghost" style="font-size:11px;margin-top:4px">Copy ID</button>
+            <div class="muted" style="margin-top:6px;font-size:11px"><span data-i18n="save.sessionId">Session ID：</span><input id="session-id" readonly style="width:100%;font-size:11px;margin-top:3px">
+              <button id="copy-session" class="ghost" style="font-size:11px;margin-top:4px" data-i18n="save.copy">复制</button>
             </div>
-            <div class="muted" style="margin-top:4px;font-size:11px">Switch: <input id="switch-session" placeholder="paste session ID" style="width:100%;font-size:11px;margin-top:3px">
-              <button id="apply-session" class="ghost" style="font-size:11px;margin-top:4px">Switch</button>
+            <div class="muted" style="margin-top:4px;font-size:11px"><span data-i18n="save.switch">切换Session：</span><input id="switch-session" data-i18n-placeholder="save.switchPlaceholder" placeholder="粘贴Session ID" style="width:100%;font-size:11px;margin-top:3px">
+              <button id="apply-session" class="ghost" style="font-size:11px;margin-top:4px" data-i18n="save.switchBtn">切换</button>
             </div>
             <div id="session-msg" class="muted" style="margin-top:4px"></div>
           </details>
         </div>
-        <!-- Library -->
         <div class="home-card" id="lib-card">
           <span class="hc-icon">📖</span>
-          <span class="hc-title">Player Library</span>
-          <span class="hc-desc">Search and sort all 565 players by rating, stats, or position.</span>
+          <span class="hc-title" data-i18n="home.library">球员库</span>
+          <span class="hc-desc" data-i18n="home.library.desc">搜索并排序全部球员的评分、数据和位置。</span>
         </div>
-        <!-- Matchup -->
         <div class="home-card" id="matchup-card">
           <span class="hc-icon">⚔️</span>
-          <span class="hc-title">Simulate Matchup</span>
-          <span class="hc-desc">Build two teams and simulate head-to-head.</span>
+          <span class="hc-title" data-i18n="home.matchup">模拟对战</span>
+          <span class="hc-desc" data-i18n="home.matchup.desc">组建两支球队进行模拟对决。</span>
         </div>
       </div>
 
-      <!-- Achievement row -->
       <div class="home-grid" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
         <div class="panel">
           <details class="collapsible">
-            <summary>🏆 Trophy Room</summary>
-            <div id="career" class="muted" style="margin-bottom:8px">No history yet.</div>
-            <div id="trophy-room" class="muted">No trophies yet. Win a championship!</div>
+            <summary data-i18n="home.trophy">🏆 奖杯陈列室</summary>
+            <div id="career" class="muted" style="margin-bottom:8px" data-i18n="misc.noHistory">暂无历史记录。</div>
+            <div id="trophy-room" class="muted" data-i18n="misc.noTrophies">暂无奖杯。赢得一座总冠军！</div>
           </details>
         </div>
         <div class="panel">
           <details class="collapsible">
-            <summary>🏅 Hall of Fame</summary>
-            <div id="hall-of-fame" class="muted">No legends yet.</div>
+            <summary data-i18n="home.hof">🏅 名人堂</summary>
+            <div id="hall-of-fame" class="muted" data-i18n="misc.noHof">暂无名人堂成员。</div>
           </details>
         </div>
       </div>
 
-      <!-- Expanded panels (hidden by default, toggled by cards) -->
       <div id="home-expanded"></div>
 
-      <!-- New Run form (hidden until card click) -->
       <div class="panel section-gap" id="new-run-panel" hidden>
-        <h2>Start a New Run</h2>
+        <h2 data-i18n="home.newRun">开始新游戏</h2>
         <div class="row">
           <div class="field">
-            <label>Game mode</label>
-            <label class="inline"><input type="radio" name="game-mode" value="normal" checked> Normal <span class="muted">(2025-26 season)</span></label>
-            <label class="inline"><input type="radio" name="game-mode" value="dynasty"> Dynasty <span class="muted">(up to 10 seasons)</span></label>
+            <label data-i18n="form.gameMode">游戏模式</label>
+            <label class="inline"><input type="radio" name="game-mode" value="normal" checked> <span data-i18n="form.normal">普通</span> <span class="muted" data-i18n="form.normalHint">（2025-26赛季）</span></label>
+            <label class="inline"><input type="radio" name="game-mode" value="dynasty"> <span data-i18n="form.dynasty">王朝</span> <span class="muted" data-i18n="form.dynastyHint">（最多10个赛季）</span></label>
           </div>
         </div>
         <div class="row">
           <div class="field">
-            <label>Your team name <span class="muted">(optional)</span></label>
-            <input id="team-name" placeholder="e.g. The Rebuilders">
+            <label><span data-i18n="form.teamName">自定义队名</span> <span class="muted" data-i18n="form.teamNameHint">（选填）</span></label>
+            <input id="team-name" data-i18n-placeholder="form.teamName.placeholder" placeholder="例如：重建者">
           </div>
           <div class="field">
-            <label>Replace a team (picks your conference)</label>
+            <label data-i18n="form.replaceTeam">替换球队（决定分区）</label>
             <select id="replace-team"></select>
           </div>
           <div class="field">
-            <label>Draft mode</label>
-            <label class="inline"><input type="radio" name="mode" value="open" checked> Open</label>
-            <label class="inline"><input type="radio" name="mode" value="blind"> Blind</label>
+            <label data-i18n="form.draftMode">选秀模式</label>
+            <label class="inline"><input type="radio" name="mode" value="open" checked> <span data-i18n="form.open">公开</span></label>
+            <label class="inline"><input type="radio" name="mode" value="blind"> <span data-i18n="form.blind">盲选</span></label>
           </div>
           <div class="field">
-            <label>Difficulty</label>
-            <label class="inline"><input type="radio" name="difficulty" value="normal" checked> Normal</label>
-            <label class="inline"><input type="radio" name="difficulty" value="hard"> Hard <span class="muted">($400M salary cap)</span></label>
+            <label data-i18n="form.difficulty">难度</label>
+            <label class="inline"><input type="radio" name="difficulty" value="normal" checked> <span data-i18n="form.normalDiff">普通</span></label>
+            <label class="inline"><input type="radio" name="difficulty" value="hard"> <span data-i18n="form.hard">困难</span> <span class="muted" data-i18n="form.hardHint">（$400M 工资帽）</span></label>
           </div>
         </div>
         <p id="mode-note" class="muted" style="margin-top:4px"></p>
-        <button id="new-draft" class="primary">Start Draft</button>
-
+        <button id="new-draft" class="primary" data-i18n="form.startDraft">开始选秀</button>
         <details class="collapsible section-gap">
-          <summary>Season Archive</summary>
-          <div id="saved-teams" class="muted">No seasons saved yet.</div>
+          <summary data-i18n="form.archive">赛季存档</summary>
+          <div id="saved-teams" class="muted" data-i18n="misc.noArchive">暂无赛季存档。</div>
         </details>
       </div>
 
-      <!-- Player Library (hidden, toggled by card) -->
       <div class="panel section-gap" id="library-panel" hidden>
-        <h2>Player Library</h2>
+        <h2 data-i18n="home.library">球员库</h2>
         <div class="row">
-          <label class="inline">Position
+          <label class="inline"><span data-i18n="lib.position">位置</span>
             <select id="lib-pos">
-              <option value="">All</option>
+              <option value="" data-i18n="lib.all">全部</option>
               <option>PG</option><option>SG</option><option>SF</option><option>PF</option><option>C</option>
             </select>
           </label>
-          <label class="inline">Search
-            <input id="lib-search" type="text" placeholder="Player name…" style="width:180px">
+          <label class="inline"><span data-i18n="lib.search">搜索</span>
+            <input id="lib-search" type="text" data-i18n-placeholder="lib.searchPlaceholder" placeholder="球员名字…" style="width:180px">
           </label>
-          <span class="muted">Click a column header to sort.</span>
+          <span class="muted" data-i18n="lib.sortHint">点击列标题排序。</span>
         </div>
         <div class="table-wrap">
           <table id="library">
             <thead>
               <tr>
-                <th data-sort="name">Name</th>
-                <th data-sort="position">Pos</th>
-                <th data-sort="overall">OVR</th>
+                <th data-sort="name" data-i18n="lib.header.name">名字</th>
+                <th data-sort="position" data-i18n="lib.header.pos">位置</th>
+                <th data-sort="overall" data-i18n="lib.header.ovr">能力值</th>
                 <th data-sort="rating">Rtg</th>
                 <th data-sort="pts">PTS</th>
                 <th data-sort="trb">TRB</th>
@@ -180,28 +169,27 @@
         </div>
       </div>
 
-      <!-- Matchup (hidden, toggled by card) -->
       <div class="panel section-gap" id="matchup-panel-wrap" hidden>
-        <h2>⚔️ Simulate Matchup</h2>
+        <h2>⚔️ <span data-i18n="home.matchup">模拟对战</span></h2>
         <div id="matchup-panel">
-          <p class="muted" style="margin-top:4px">Build two 10-man teams, set 5 starters each, then simulate head-to-head.</p>
+          <p class="muted" style="margin-top:4px" data-i18n="matchup.desc">组建两支10人球队,各设5名首发,然后模拟对决。</p>
           <div class="matchup-grid">
             <div class="matchup-team" id="mm-team-a"></div>
             <div class="matchup-team" id="mm-team-b"></div>
           </div>
           <div class="row" style="margin-top:16px">
             <div class="field">
-              <label>Mode</label>
+              <label data-i18n="matchup.mode">模式</label>
               <select id="mm-mode">
-                <option value="regular">Regular Season</option>
-                <option value="playoff">Playoff (starters/top-8 favoured)</option>
+                <option value="regular" data-i18n="matchup.regular">常规赛</option>
+                <option value="playoff" data-i18n="matchup.playoff">季后赛（首发/前8人加权）</option>
               </select>
             </div>
             <div class="field">
-              <label>Times (max 100)</label>
+              <label data-i18n="matchup.times">次数（最多100）</label>
               <input id="mm-times" type="number" min="1" max="100" value="10">
             </div>
-            <button id="mm-simulate" class="primary">Simulate</button>
+            <button id="mm-simulate" class="primary" data-i18n="matchup.simulate">模拟</button>
           </div>
           <div id="mm-result"></div>
         </div>
@@ -210,70 +198,71 @@
 
     <!-- 1.5 Offseason Recap -->
     <section id="recap" hidden>
-      <div class="page-head"><span class="step-badge">OFF</span><h2>Offseason Recap</h2></div>
+      <div class="page-head"><span class="step-badge">OFF</span><h2 data-i18n="recap.title">休赛期回顾</h2></div>
       <div id="recap-body"></div>
       <div class="row">
-        <button id="recap-continue" class="primary">Continue</button>
+        <button id="recap-continue" class="primary" data-i18n="recap.continue">继续</button>
       </div>
     </section>
 
     <!-- 2. Draft -->
     <section id="draft" hidden>
-      <div class="page-head"><span class="step-badge">1/5</span><h2 id="draft-title">Draft <span id="draft-progress" class="muted"></span></h2></div>
-      <p id="draft-desc" class="page-desc">Pick 1 of 5 players each round, until you have 10.</p>
-      <button id="reroll">Re-roll (<span id="reroll-count">5</span>)</button>
+      <div class="page-head"><span class="step-badge">1/5</span><h2 id="draft-title"><span data-i18n="draft.title">选秀</span> <span id="draft-progress" class="muted"></span></h2></div>
+      <p id="draft-desc" class="page-desc" data-i18n="draft.desc">每轮从5名球员中选1人,直到满10人。</p>
+      <button id="reroll"><span data-i18n="draft.reroll">重新抽取</span> (<span id="reroll-count">5</span>)</button>
       <div id="draft-picks" hidden></div>
       <div id="draft-roster" class="panel"></div>
       <div id="candidates" class="grid"></div>
     </section>
 
-    <!-- 3.5 Free Agency (offseason) -->
+    <!-- 3.5 Free Agency -->
     <section id="freeagency" hidden>
-      <div class="page-head"><span class="step-badge">OFF</span><h2>Offseason Free Agency</h2></div>
-      <p class="page-desc">Release a player to free a spot, then sign a free agent. Or skip straight to your lineup.</p>
+      <div class="page-head"><span class="step-badge">OFF</span><h2 data-i18n="fa.title">休赛期自由市场</h2></div>
+      <p class="page-desc" data-i18n="fa.desc">释放球员腾出名额,然后签约自由球员。或者直接前往阵容设置。</p>
       <div id="fa-roster" class="panel"></div>
       <div id="fa-candidates" class="grid"></div>
       <div class="row">
-        <button id="fa-done" class="primary">Done — Go to Lineup</button>
+        <button id="fa-done" class="primary" data-i18n="fa.done">完成 — 前往阵容设置</button>
       </div>
     </section>
 
     <!-- 3. Lineup -->
     <section id="lineup" hidden>
-      <div class="page-head"><span class="step-badge">2/5</span><h2>Set Your Starting 5</h2></div>
-      <p class="page-desc">Assign one player per position. Out-of-position players take a rating penalty.</p>
+      <div class="page-head"><span class="step-badge">2/5</span><h2 data-i18n="lineup.title">设置首发五人</h2></div>
+      <p class="page-desc" data-i18n="lineup.desc">为每个位置分配一名球员。错位球员会受到评分惩罚。</p>
       <div id="strength-banner" class="strength-banner">
-        <span>Team Strength</span>
+        <span data-i18n="lineup.strength">球队实力</span>
         <span id="strength-value" class="strength-value">—</span>
-        <span class="muted">updates as you change starters</span>
+        <span class="muted" data-i18n="lineup.updates">调整首发时实时更新</span>
       </div>
       <div id="slots"></div>
       <div id="bench" class="panel"></div>
       <div class="row">
-        <button id="confirm-lineup" class="primary">Confirm Lineup</button>
+        <button id="confirm-lineup" class="primary" data-i18n="lineup.confirm">确认阵容</button>
       </div>
     </section>
 
     <!-- 4. Season -->
     <section id="season" hidden>
-      <div class="page-head"><span class="step-badge">3/5</span><h2>Regular Season</h2></div>
-      <button id="simulate-season" class="primary">Simulate 82-Game Season</button>
+      <div class="page-head"><span class="step-badge">3/5</span><h2 data-i18n="season.title">常规赛</h2></div>
+      <button id="simulate-season" class="primary" data-i18n="season.simulate">模拟82场赛季</button>
       <div id="season-result"></div>
     </section>
 
     <!-- 5. Playoffs -->
     <section id="playoffs" hidden>
-      <div class="page-head"><span class="step-badge">4/5</span><h2>Playoffs</h2></div>
+      <div class="page-head"><span class="step-badge">4/5</span><h2 data-i18n="playoffs.title">季后赛</h2></div>
       <div id="playoffs-body"></div>
     </section>
 
     <!-- 6. Result -->
     <section id="result" hidden>
-      <div class="page-head"><span class="step-badge">5/5</span><h2>Season Result</h2></div>
+      <div class="page-head"><span class="step-badge">5/5</span><h2 data-i18n="result.title">赛季结果</h2></div>
       <div id="result-body"></div>
     </section>
   </main>
 
+  <script src="lang.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
