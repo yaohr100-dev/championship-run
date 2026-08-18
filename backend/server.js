@@ -41,7 +41,7 @@ function playerBrief(p) {
     pts: p.pts, trb: p.trb, ast: p.ast, stl: p.stl, blk: p.blk,
     fgPct: p.fg_pct, threePct: p.three_pct, ftPct: p.ft_pct,
     rating: +sim.powerRating(p).toFixed(1),
-    salary: sim.playerSalary(p.overall),
+    salary: sim.playerSalary(p.overall, p.epm),
     potential: sim.potentialGrade(p.name),
   };
 }
@@ -151,20 +151,20 @@ app.get('/api/draft', (req, res) => {
   const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const spent = hard
     ? db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
-        .reduce((s, p) => s + sim.playerSalary(p.overall), 0)
+        .reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0)
     : 0;
 
   // hard mode: guarantee at least one candidate fits the budget (reserving the pool's
   // minimum salary for every remaining pick), so you can always finish the draft.
   // (initial draft only — the annual rookie draft replaces retirees, no budget needed.)
   if (hard && !offseason) {
-    const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m);
+    const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m, 0);
     const remaining = sim.HARD_MODE_BUDGET - spent;
     const usable = remaining - (sim.ROSTER_SIZE - rosterCount - 1) * minSalary;
-    if (!candidates.some(c => sim.playerSalary(c.overall) <= usable)) {
+    if (!candidates.some(c => sim.playerSalary(c.overall, c.epm) <= usable)) {
       const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
       const affordable = db.prepare('SELECT * FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession())
-        .filter(p => !drafted.has(p.id) && sim.playerSalary(p.overall) <= usable);
+        .filter(p => !drafted.has(p.id) && sim.playerSalary(p.overall, p.epm) <= usable);
       if (affordable.length) candidates[0] = sim.shuffle(affordable)[0];
     }
   }
@@ -203,12 +203,12 @@ app.post('/api/roster', (req, res) => {
   // hard mode: enforce the salary cap (reserving the pool's minimum salary for
   // every remaining pick, so you can always finish the draft)
   if (getState('difficulty') === 'hard') {
-    const p = db.prepare('SELECT overall FROM players WHERE id = ?').get(playerId);
+    const p = db.prepare('SELECT overall, epm FROM players WHERE id = ?').get(playerId);
     const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
-      .reduce((s, x) => s + sim.playerSalary(x.overall), 0);
-    const salary = sim.playerSalary(p.overall);
+      .reduce((s, x) => s + sim.playerSalary(x.overall, x.epm), 0);
+    const salary = sim.playerSalary(p.overall, p.epm);
     const futurePicks = sim.ROSTER_SIZE - count - 1; // picks left after this one
-    const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m);
+    const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m, 0);
     const total = spent + salary;
     if (total + futurePicks * minSalary > sim.HARD_MODE_BUDGET) {
       const maxNow = sim.HARD_MODE_BUDGET - futurePicks * minSalary;
@@ -1172,8 +1172,8 @@ app.post('/api/trade', (req, res) => {
   // "trade up to hoard stars" loophole (the AI value check above already limits the
   // overall swing; this blocks the same upgrade through payroll).
   if (getState('difficulty') === 'hard') {
-    const inSal = aiPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall), 0);
-    const outSal = myPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall), 0);
+    const inSal = aiPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall, p.epm), 0);
+    const outSal = myPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall, p.epm), 0);
     if (inSal > outSal) {
       return res.json({ accepted: false, message: `Rejected: salary cap — you'd take on $${inSal}M and shed $${outSal}M. A trade can't increase your payroll.` });
     }

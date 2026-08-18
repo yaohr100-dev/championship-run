@@ -153,11 +153,12 @@ function expectedPts(overall) {
   return 0.04 * Math.pow(Math.max(1, overall - 55), 1.95);
 }
 
-// Hard-mode salary: superstars cost disproportionately more, so under the cap you
-// can't just hoard the best players. (overall-55)^2/20 → 60 costs 1, 80 costs 31,
-// 95 costs 80.
-function playerSalary(overall) {
-  return Math.max(1, Math.round((overall - 55) * (overall - 55) / 20));
+// Hard-mode salary: based on powerRating (= OVR + EPM×0.5) so high-impact players
+// cost more under the cap. Without this, high-EPM/low-OVR players are free strength.
+// (rating-55)^2/20 → 60 costs 1, 80 costs 31, 95 costs 80.
+function playerSalary(overall, epm = 0) {
+  const rating = Math.round(overall + (epm || 0) * EPM_COEF);
+  return Math.max(1, Math.round((rating - 55) * (rating - 55) / 20));
 }
 
 function minutesWeight(rating, topHeavy = false) {
