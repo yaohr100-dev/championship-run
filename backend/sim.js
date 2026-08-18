@@ -150,7 +150,7 @@ function powerRating(p) {
 // fringe player ~7 ppg, a 98-ovr superstar ~30 ppg. This is the ability anchor for
 // the scoring-share model.
 function expectedPts(overall) {
-  return 0.095 * Math.pow(Math.max(1, overall - 55), 1.55);
+  return 0.05 * Math.pow(Math.max(1, overall - 55), 1.80);
 }
 
 // Hard-mode salary: superstars cost disproportionately more, so under the cap you
@@ -876,7 +876,7 @@ function allocateStats(players, teamScore, topHeavy = false) {
     pts: pts[i],
     trb: trb[i], ast: ast[i], stl: stl[i], blk: blk[i],
     fgPct: shotPct(x.p.fg_pct, 0.08, 0.25, 0.75),
-    threePct: shotPct(x.p.three_pct, 0.12, 0.05, 0.55),
+    threePct: shotPct(x.p.three_pct, 0.12, 0.20, 0.55),
     ftPct: shotPct(x.p.ft_pct, 0.08, 0.45, 0.98),
   }));
 }
