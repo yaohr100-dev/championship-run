@@ -711,13 +711,8 @@ function computeAwards(teams) {
   const eligible = all.filter(p => p.avail);
   const byMvp = [...eligible].sort((a, b) => mvpScore(b) - mvpScore(a));
   const byDpoy = [...eligible].sort((a, b) => dpoyScore(b) - dpoyScore(a));
-  // All-NBA First Team: one player per position (PG/SG/SF/PF/C), best MVP score at each
-  const taken = new Set();
-  const firstTeam = [];
-  for (const pos of POSITIONS) {
-    const best = byMvp.find(p => p.avg.position === pos && !taken.has(p.name));
-    if (best) { taken.add(best.name); firstTeam.push({ player: best.name, team: best.team, isUser: best.isUser, position: best.avg.position }); }
-  }
+  // All-NBA First Team: top 5 players overall (by MVP score), regardless of position
+  const firstTeam = byMvp.slice(0, 5).map(p => ({ player: p.name, team: p.team, isUser: p.isUser, position: p.avg.position }));
   return {
     mvp: award(byMvp[0]),
     dpoy: award(byDpoy[0]),
