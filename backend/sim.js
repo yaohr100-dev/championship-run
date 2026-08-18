@@ -29,14 +29,14 @@ const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0
 // used only as a mild "usage tendency" correction (^USAGE_EXP), so a weak player's
 // real per-36 rate (often inflated by low-competition minutes) can't balloon them to
 // 25+ ppg, while strong players land near their real ppg.
-const USAGE_EXP = 0.4;         // how strongly real usage tendency bends the share
-const USAGE_EXP_PO = 0.6;      // playoffs: stars carry a bit more usage
+const USAGE_EXP = 0.5;         // how strongly real usage tendency bends the share
+const USAGE_EXP_PO = 0.7;      // playoffs: stars carry even more usage
 const SEASON_GAMES = 82;
 const START_SEASON = 2025;     // the first season is 2025-26; dynasty seasons advance one year each
-const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
-const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive), but not so steep that a strong Finals opponent is unbeatable. Player title odds peak here (~15%) across the realistic opponent path.
-const HOME_ADV = 2.0;          // home-court strength boost (rating points) — ~60% home win rate
-const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // = HOME_ADV now; kept as a ratio so the home rate stays ~60% in both phases
+const SCALE_RS = 14;           // regular season: flatter (bigger randomness)
+const SCALE_PO = 10;           // playoffs: steeper than the regular season (more decisive)
+const HOME_ADV = 1.5;          // home-court strength boost (rating points) — ~57% home win rate
+const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // ≈1.07; kept as a ratio so the home rate stays ~57%
 const AI_TEAM_BAND = 8;        // talent spread around an AI team's target strength (rating units); larger = more role players mixed in
 const BENCH_MINUTES_RATIO = 0.75; // bench players play this fraction of their ability-driven minutes, so lineup choice affects team strength
 const TEAMS_PER_CONF = 15;
@@ -150,7 +150,7 @@ function powerRating(p) {
 // fringe player ~7 ppg, a 98-ovr superstar ~30 ppg. This is the ability anchor for
 // the scoring-share model.
 function expectedPts(overall) {
-  return 0.072 * Math.pow(Math.max(1, overall - 55), 1.60);
+  return 0.095 * Math.pow(Math.max(1, overall - 55), 1.55);
 }
 
 // Hard-mode salary: superstars cost disproportionately more, so under the cap you
@@ -340,7 +340,9 @@ function rookieStats(overall, position) {
 function generateRookie(db) {
   const session = currentSession();
   const name = generateRookieName(db);
-  const position = POSITIONS[Math.floor(Math.random() * POSITIONS.length)];
+  // Weighted position distribution: guards/wings are more common than bigs in the NBA
+  const posPool = ['PG','PG','PG','PG', 'SG','SG','SG','SG','SG', 'SF','SF','SF','SF','SF', 'PF','PF','PF','PF', 'C','C','C','C'];
+  const position = posPool[Math.floor(Math.random() * posPool.length)];
   const age = 19 + Math.floor(Math.random() * 4); // 19-22
   const overall = draftOverall();
   const s = rookieStats(overall, position);
@@ -581,8 +583,11 @@ function simulateGames(teams, schedule, aiBonus) {
     // 3. Effective strength for this game = healthy lineup only (fall back to full
     //    roster if everyone were somehow hurt, which never happens in practice).
     //    Momentum (win/loss streak) nudges it: a hot team plays a bit above itself.
-    const hS = (hPlayers.length ? teamStrength(hPlayers) + (H.t.isUser ? 0 : aiBonus) : H.s) * moraleFactor(H.streak);
-    const aS = (aPlayers.length ? teamStrength(aPlayers) + (A.t.isUser ? 0 : aiBonus) : A.s) * moraleFactor(A.streak);
+    //    Fatigue: ~15% of games simulate a back-to-back, penalizing both teams -3%.
+    const fatigueH = Math.random() < 0.15 ? 0.97 : 1;
+    const fatigueA = Math.random() < 0.15 ? 0.97 : 1;
+    const hS = (hPlayers.length ? teamStrength(hPlayers) + (H.t.isUser ? 0 : aiBonus) : H.s) * moraleFactor(H.streak) * fatigueH;
+    const aS = (aPlayers.length ? teamStrength(aPlayers) + (A.t.isUser ? 0 : aiBonus) : A.s) * moraleFactor(A.streak) * fatigueA;
     // a = home team; home court adds HOME_ADV to its effective strength.
     const r = simulateMatchup(hPlayers, aPlayers, 'regular', hS + HOME_ADV, aS);
     const homeWon = r.aWins;
@@ -689,20 +694,30 @@ function computeAwards(teams) {
     for (const p of t.players) {
       const avg = t.playerAverages.find(a => a.name === p.name);
       if (!avg) continue;
-      all.push({ name: p.name, team: t.name, isUser: t.isUser, role: p.role, winPct, avg });
+      // Games-played factor: players who miss significant time are penalised.
+      // Below 50 games the weight drops sharply, below 30 they're essentially ineligible.
+      const gpFactor = Math.min(1, (avg.games || SEASON_GAMES) / SEASON_GAMES);
+      const avail = gpFactor >= 0.35; // minimum ~29 games to be award-eligible
+      all.push({ name: p.name, team: t.name, isUser: t.isUser, role: p.role, winPct, avg, gpFactor, avail });
     }
   }
   const award = (p) => (p ? { player: p.name, team: p.team, isUser: p.isUser } : null);
 
-  // MVP: box-score composite + team wins + simulated EPM (impact)
-  const mvpScore = (p) => p.avg.pts + 1.2 * p.avg.trb + 1.5 * p.avg.ast + 2 * p.avg.stl + 2 * p.avg.blk + p.winPct * 25 + p.avg.epm * 3;
-  // DPOY: steals/blocks + team wins + simulated DEPM
-  const dpoyScore = (p) => p.avg.stl * 3 + p.avg.blk * 3 + p.winPct * 15 + p.avg.depm * 5;
+  // MVP: box-score composite + team wins + simulated EPM (impact), weighted by games played
+  const mvpScore = (p) => (p.avg.pts + 1.2 * p.avg.trb + 1.5 * p.avg.ast + 2 * p.avg.stl + 2 * p.avg.blk + p.winPct * 25 + p.avg.epm * 3) * p.gpFactor;
+  // DPOY: steals/blocks + team wins + simulated DEPM, weighted by games played
+  const dpoyScore = (p) => (p.avg.stl * 3 + p.avg.blk * 3 + p.winPct * 15 + p.avg.depm * 5) * p.gpFactor;
 
-  const byMvp = [...all].sort((a, b) => mvpScore(b) - mvpScore(a));
-  const byDpoy = [...all].sort((a, b) => dpoyScore(b) - dpoyScore(a));
-  // All-NBA First Team: top 5 players overall (by MVP score), regardless of position
-  const firstTeam = byMvp.slice(0, 5).map(p => ({ player: p.name, team: p.team, isUser: p.isUser, position: p.avg.position }));
+  const eligible = all.filter(p => p.avail);
+  const byMvp = [...eligible].sort((a, b) => mvpScore(b) - mvpScore(a));
+  const byDpoy = [...eligible].sort((a, b) => dpoyScore(b) - dpoyScore(a));
+  // All-NBA First Team: one player per position (PG/SG/SF/PF/C), best MVP score at each
+  const taken = new Set();
+  const firstTeam = [];
+  for (const pos of POSITIONS) {
+    const best = byMvp.find(p => p.avg.position === pos && !taken.has(p.name));
+    if (best) { taken.add(best.name); firstTeam.push({ player: best.name, team: best.team, isUser: best.isUser, position: best.avg.position }); }
+  }
   return {
     mvp: award(byMvp[0]),
     dpoy: award(byDpoy[0]),

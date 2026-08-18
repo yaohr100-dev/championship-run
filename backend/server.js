@@ -973,7 +973,14 @@ const MAX_TRADE_POINTS = 3;    // trade points per season: 1-for-1 = 1, 2-for-2 
 
 function tradePoints() { return parseInt(getState('trade_points') || '0', 10); }
 
-function tradeValue(players) { return players.reduce((s, p) => s + p.overall, 0); }
+function tradeValue(players) {
+  const ages = playerAges();
+  return players.reduce((s, p) => {
+    const age = ages[p.name] || p.age || 26;
+    const f = age <= 25 ? 1.10 : age <= 29 ? 1.00 : age <= 32 ? 0.85 : 0.70;
+    return s + Math.round(p.overall * f);
+  }, 0);
+}
 
 function myRosterRows() {
   return applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
