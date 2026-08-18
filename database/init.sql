@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS roster (
   slot TEXT                            -- PG/SG/SF/PF/C for starters, NULL for bench
 );
 
+-- Persisted AI league rosters (29 teams x 10 players), scoped per session.
+-- Built on dynasty season 1, then carried across seasons (players age, retire,
+-- and are replaced by rookies) so the AI league develops alongside the player.
+CREATE TABLE IF NOT EXISTS league_teams (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL DEFAULT 'default',
+  team_name TEXT NOT NULL,
+  conf TEXT NOT NULL,
+  player_id INTEGER NOT NULL REFERENCES players(id),
+  role TEXT NOT NULL DEFAULT 'bench',
+  slot TEXT
+);
+
 -- Saved teams (a named snapshot of a 10-man roster), scoped per session
 CREATE TABLE IF NOT EXISTS teams (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +67,7 @@ CREATE TABLE IF NOT EXISTS trophies (
   type TEXT NOT NULL,           -- 'championship' | 'east_mvp' | 'west_mvp' | 'finals_mvp'
   player_name TEXT,             -- for MVP awards
   team_name TEXT,
+  season_number INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

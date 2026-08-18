@@ -32,6 +32,7 @@ const HARD_AI_BONUS = 0;       // hard mode: strength bonus for every AI team (0
 const USAGE_EXP = 0.4;         // how strongly real usage tendency bends the share
 const USAGE_EXP_PO = 0.6;      // playoffs: stars carry a bit more usage
 const SEASON_GAMES = 82;
+const START_SEASON = 2025;     // the first season is 2025-26; dynasty seasons advance one year each
 const SCALE_RS = 12;           // regular season: flatter (bigger randomness)
 const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive), but not so steep that a strong Finals opponent is unbeatable. Player title odds peak here (~15%) across the realistic opponent path.
 const HOME_ADV = 2.0;          // home-court strength boost (rating points) — ~60% home win rate
@@ -57,6 +58,12 @@ function injuryLength() {
   return 7 + Math.floor(Math.random() * 6);
 }
 
+// Human-readable season label: season 1 -> "2025-26", season 2 -> "2026-27", etc.
+function seasonLabel(n) {
+  const y = START_SEASON + n - 1;
+  return `${y}-${String(y + 1).slice(2)}`;
+}
+
 // Momentum: a win/loss streak nudges a team's effective strength, ±1% per game capped
 // at ±6%. Winning builds momentum, losing snowballs — but it's a modest, capped swing.
 function moraleFactor(streak) {
@@ -72,10 +79,47 @@ function ageDelta(age) {
   return 0;
 }
 
+// Retirement age by player caliber: a star's body holds up longer than a role
+// player's. All-time greats (LeBron, Curry, Durant) play into their late 30s/early
+// 40s, while fringe players age out in their early 30s.
+function retireAge(overall) {
+  if (overall >= 90) return 40;
+  if (overall >= 84) return 39;
+  if (overall >= 78) return 38;
+  if (overall >= 72) return 37;
+  if (overall >= 66) return 36;
+  return 34;
+}
+
+// Per-player "potential" factor for dynasty growth, deterministic from the player's
+// NAME (so it survives reseeds and export/import, which remap players by name). Range
+// [0.75, 1.25]: some prospects bust (grow slowly), some boom (grow fast).
+function potentialFactor(name) {
+  let h = 0;
+  const s = String(name || '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return 0.75 + (h % 51) / 100;   // 0.75 .. 1.25
+}
+
+// Letter grade for a player's growth potential, so prospects aren't a blind bet in the
+// UI. Maps potentialFactor 0.75..1.25 to A..F.
+function potentialGrade(name) {
+  const f = potentialFactor(name);
+  if (f >= 1.15) return 'A';
+  if (f >= 1.05) return 'B';
+  if (f >= 0.95) return 'C';
+  if (f >= 0.85) return 'D';
+  return 'F';
+}
+
 // A player's effective overall = their base 2K overall + (age curve at current age) -
 // (age curve at base age). A 21-yo star gets better each year; a 30+ vet declines.
-function effectiveOverall(baseOverall, baseAge, currentAge) {
-  return Math.max(40, Math.round(baseOverall + ageDelta(currentAge) - ageDelta(baseAge)));
+// The growth portion (current > base, both before peak) is scaled by the player's
+// potential factor, so young prospects don't all reach their full peak.
+function effectiveOverall(baseOverall, baseAge, currentAge, name) {
+  const growth = ageDelta(currentAge) - ageDelta(baseAge);
+  const f = growth > 0 ? potentialFactor(name) : 1;
+  return Math.max(40, Math.round(baseOverall + growth * f));
 }
 
 function openDb() {
@@ -184,10 +228,16 @@ function getRosterPlayers(db) {
   `).all();
 }
 
+// Draftable player pool: real players (session_id NULL) plus this session's generated
+// rookies. Scoped so one run's rookies can't leak into another run's draft.
+function poolPlayers(db) {
+  return db.prepare('SELECT * FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession());
+}
+
 // 5 random candidates, excluding drafted, with position diversity (>= 4 of 5)
 function draftCandidates(db) {
   const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
-  const all = db.prepare('SELECT * FROM players').all().filter(p => !drafted.has(p.id));
+  const all = poolPlayers(db).filter(p => !drafted.has(p.id));
   let candidates = [];
   for (let i = 0; i < 200; i++) {
     candidates = shuffle(all).slice(0, 5);
@@ -197,19 +247,115 @@ function draftCandidates(db) {
   return candidates;
 }
 
-// Offseason free agency: same shape as the draft, but restricted to young players
-// (age <= maxAge) so a retired veteran is replaced by an up-and-coming player.
-function freeAgentCandidates(db, maxAge = 23) {
-  const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
-  const all = db.prepare('SELECT * FROM players').all().filter(p => !drafted.has(p.id) && p.age <= maxAge);
-  const pool = all.length >= 5 ? all : db.prepare('SELECT * FROM players').all().filter(p => !drafted.has(p.id));
+// Free-agent pool: every player (real or generated) not on any team this session.
+function freeAgentPool(db) {
+  const session = currentSession();
+  const used = new Set([
+    ...db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id),
+    ...db.prepare('SELECT player_id FROM league_teams WHERE session_id = ?').all(session).map((r) => r.player_id),
+  ]);
+  return poolPlayers(db).filter((p) => !used.has(p.id));
+}
+
+// 5 random free agents with position diversity (>= 4 of 5).
+function freeAgentCandidates(db) {
+  const pool = freeAgentPool(db);
   let candidates = [];
   for (let i = 0; i < 200; i++) {
     candidates = shuffle(pool).slice(0, 5);
-    const positions = new Set(candidates.map(p => p.position));
+    const positions = new Set(candidates.map((p) => p.position));
     if (positions.size >= 4) break;
   }
   return candidates;
+}
+
+// ---- generated rookies (annual draft) ----
+
+const FIRST_NAMES = [
+  'Jalen', 'Jayden', 'Marcus', 'Devin', 'Cameron', 'Tyler', 'Darius', 'Isaiah', 'Malik',
+  'Kenyon', 'Trey', 'Cole', 'Jaden', 'Caleb', 'Andre', 'Desmond', 'Terrell', 'Quinn',
+  'Elijah', 'Miles', 'Dante', 'Luka', 'Nikola', 'Victor', 'Giannis', 'Mateo', 'Dmitri',
+  'Serge', 'Bogdan', 'Alperen', 'Deni', 'Rui', 'Ousmane', 'Santi', 'Franz', 'Paolo',
+  'Cade', 'Amen', 'Ausar', 'Jabari', 'Scoot', 'Keyonte', 'Brandin', 'Jaime',
+];
+const LAST_NAMES = [
+  'Johnson', 'Williams', 'Thompson', 'Rodriguez', 'Petrovic', 'Okafor', 'Ndiaye',
+  'Kovacevic', 'Silva', 'Hernandez', 'Moreau', 'Lindqvist', 'Onyeka', 'Diallo', 'Mbeki',
+  'Fernandez', 'Novak', 'Carter', 'Bridges', 'Whitfield', 'Hamilton', 'Duncan', 'Foster',
+  'Porter', 'Mason', 'Griffin', 'Hughes', 'Bennett', 'Reyes', 'Castillo', 'Dominguez',
+  'Adeyemi', 'Ibrahim', 'Sato', 'Yamamoto', 'Khan', 'Singh', 'Osei', 'Mensah', 'Volkov',
+  'Baranov', 'Sorensen', 'Jensen', 'Keller', 'Mancini',
+];
+
+// Unique random NBA-style name (not colliding with any existing player).
+function generateRookieName(db) {
+  for (let i = 0; i < 60; i++) {
+    const first = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
+    const last = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+    const name = `${first} ${last}`;
+    if (!db.prepare('SELECT 1 FROM players WHERE name = ?').get(name)) return name;
+  }
+  return `${FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)]} ${LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)]} Jr.`;
+}
+
+// Realistic rookie overall: a few franchise prospects, a lottery tier, a first-round
+// tier, then a long tail of second-round/undrafted talent.
+function draftOverall() {
+  const r = Math.random();
+  if (r < 0.05) return 80 + Math.floor(Math.random() * 7); // 80-86 franchise
+  if (r < 0.25) return 74 + Math.floor(Math.random() * 6); // 74-79 lottery
+  if (r < 0.60) return 68 + Math.floor(Math.random() * 6); // 68-73 first round
+  return 58 + Math.floor(Math.random() * 10);              // 58-67 second round / undrafted
+}
+
+const r2 = (x) => Math.round(x * 100) / 100;
+
+// Position-aware rookie stat estimates, mirrors seed.js estimateStats but nudges the
+// big-man / point-guard tendencies so a C rebounds and a PG assists.
+function rookieStats(overall, position) {
+  const x = overall - 55;
+  const mod = {
+    PG: { trb: -1.0, ast: 2.0, blk: -0.2 },
+    SG: { trb: -0.5, ast: 0.5, blk: -0.1 },
+    SF: { trb: 0.2, ast: 0.0, blk: 0.0 },
+    PF: { trb: 1.0, ast: -0.5, blk: 0.3 },
+    C:  { trb: 1.8, ast: -1.2, blk: 0.6 },
+  }[position] || { trb: 0, ast: 0, blk: 0 };
+  const epm = r2(0.4 * (overall - 70));
+  return {
+    pts: r2(0.7 * x),
+    trb: r2(Math.max(0.5, 0.22 * x + mod.trb)),
+    ast: r2(Math.max(0.3, 0.18 * x + mod.ast)),
+    stl: r2(Math.max(0.1, 0.035 * x)),
+    blk: r2(Math.max(0.05, 0.03 * x + mod.blk)),
+    fgPct: r2(0.40 + (overall - 60) * 0.0045),
+    threePct: r2(0.28 + (overall - 60) * 0.0035),
+    ftPct: r2(0.62 + (overall - 60) * 0.004),
+    epm, oepm: r2(epm * 0.55), depm: r2(epm * 0.45),
+  };
+}
+
+// Insert one rookie into the players table (session-scoped so it can't leak into
+// another run's draft pool). Returns its fresh row summary.
+function generateRookie(db) {
+  const session = currentSession();
+  const name = generateRookieName(db);
+  const position = POSITIONS[Math.floor(Math.random() * POSITIONS.length)];
+  const age = 19 + Math.floor(Math.random() * 4); // 19-22
+  const overall = draftOverall();
+  const s = rookieStats(overall, position);
+  const info = db.prepare(`
+    INSERT INTO players (name, position, position2, age, overall, epm, oepm, depm, pts, trb, ast, stl, blk, mp, fg_pct, three_pct, ft_pct, session_id)
+    VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+  `).run(name, position, age, overall, s.epm, s.oepm, s.depm, s.pts, s.trb, s.ast, s.stl, s.blk, s.fgPct, s.threePct, s.ftPct, session);
+  return { id: info.lastInsertRowid, name, position, age, overall };
+}
+
+// Generate this year's draft class (n rookies).
+function generateDraftClass(db, n) {
+  const rookies = [];
+  for (let i = 0; i < n; i++) rookies.push(generateRookie(db));
+  return rookies;
 }
 
 // ---- AI team generation ----
@@ -242,7 +388,7 @@ function weightedSampleByRating(list, center, band, n) {
 // any players already assigned to another AI team), position-balanced, whose team
 // strength is close to `target`. Returns array of player rows with role/slot.
 function generateAITeam(db, excludeIds, target) {
-  const pool = db.prepare('SELECT * FROM players').all().filter(p => !excludeIds.has(p.id));
+  const pool = poolPlayers(db).filter(p => !excludeIds.has(p.id));
   let best = null, bestDiff = Infinity;
   for (let attempt = 0; attempt < 60; attempt++) {
     // pick 2 per position = 10 players, tilted toward the target strength
@@ -320,7 +466,9 @@ function buildLeague(db, userTeam, config) {
   // players first, and every roster is exclusive (no player appears on two teams).
   const usedIds = new Set(draftedIds);
   const aiTeams = [];
-  const minS = 70, maxS = 88; // league strength range; cap slightly below the player's ceiling (~90) so a well-built team can still top the league
+  // League strength range (season-1 only — after that the AI league develops organically
+  // via draft picks and free agency rather than a static ramp).
+  const minS = 70, maxS = 88; // cap slightly below the player's ceiling (~90) so a well-built team can still top the league
   for (let i = 0; i < 29; i++) {
     const target = maxS - (maxS - minS) * (i / 28);
     const players = generateAITeam(db, usedIds, target);
@@ -506,14 +654,20 @@ function finalizeSeason(standings, totalGames, leagueAvg) {
   return { east, west, leagueAvg, awards: computeAwards(standings) };
 }
 
-// Full-season convenience (one call): both halves of the schedule, merged.
-function simulateSeason(db, userTeam, config) {
-  const { teams, leagueAvg, aiBonus } = buildLeague(db, userTeam, config);
+// Simulate a full season against an already-built league (both halves, merged).
+function simulateSeasonWithLeague(teams, leagueAvg, aiBonus) {
   const schedule = buildSchedule(teams);
   const s1 = simulateGames(teams, schedule.first, aiBonus);
   const s2 = simulateGames(teams, schedule.second, aiBonus);
   const combined = mergeStandings(s1, s2, SEASON_GAMES);
   return finalizeSeason(combined, SEASON_GAMES, leagueAvg);
+}
+
+// Full-season convenience (one call): build the league then simulate. Used by test
+// scripts that don't need the persisted dynasty league.
+function simulateSeason(db, userTeam, config) {
+  const { teams, leagueAvg, aiBonus } = buildLeague(db, userTeam, config);
+  return simulateSeasonWithLeague(teams, leagueAvg, aiBonus);
 }
 
 // Single-game EPM: anchored to the player's real EPM, adjusted by their per-game
@@ -733,9 +887,10 @@ function shotPct(base, amplitude, min, max) {
 
 module.exports = {
   openDb, powerRating, playerSalary, minutesWeight, positionDiscount, teamStrength,
-  draftCandidates, freeAgentCandidates, generateAITeam, simulateSeason, buildLeague, buildSchedule, simulateGames, mergeStandings, finalizeSeason,
+  draftCandidates, freeAgentCandidates, freeAgentPool, generateAITeam, simulateSeason, simulateSeasonWithLeague, buildLeague, buildSchedule, simulateGames, mergeStandings, finalizeSeason,
   simulateMatchup, simulateSeasonGame,
+  generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall,
+  ageDelta, effectiveOverall, START_SEASON, seasonLabel, retireAge, potentialFactor, potentialGrade,
 };

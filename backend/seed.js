@@ -224,6 +224,8 @@ function migrate(db) {
     db.exec('DROP TABLE state_old');
   }
   if (!has('players', 'mp')) db.exec('ALTER TABLE players ADD COLUMN mp REAL NOT NULL DEFAULT 0');
+  if (!has('players', 'session_id')) db.exec('ALTER TABLE players ADD COLUMN session_id TEXT');
+  if (!has('trophies', 'season_number')) db.exec('ALTER TABLE trophies ADD COLUMN season_number INTEGER NOT NULL DEFAULT 0');
 }
 
 // Fill in real MP for any players seeded before the mp column existed.

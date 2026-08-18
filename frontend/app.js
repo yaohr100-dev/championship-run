@@ -1,7 +1,7 @@
 // Championship Run — frontend logic
 const $ = (id) => document.getElementById(id);
 
-const state = { mode: 'open', gameMode: 'normal', seasonNumber: 1, replacedTeam: null, conference: null, roster: [], libSort: 'overall', libDir: 'desc', libPos: '', playoffRound: 1 };
+const state = { mode: 'open', gameMode: 'normal', seasonNumber: 1, replacedTeam: null, conference: null, roster: [], libSort: 'overall', libDir: 'desc', libPos: '', playoffRound: 1, offseasonFlow: false };
 
 // Blind mode hides ALL ability info (overall/EPM/rating/strength) and per-player
 // salary (which encodes overall). Position is hidden during the draft but revealed
@@ -10,9 +10,38 @@ const state = { mode: 'open', gameMode: 'normal', seasonNumber: 1, replacedTeam:
 // — it's the player's own financial state, not scouting info.
 const isBlind = () => state.mode === 'blind';
 
+// ---------- Toast notifications (replaces alert) ----------
+function toast(msg, type = 'info', duration = 3500) {
+  const container = $('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, duration);
+}
+
+// ---------- Progress bar ----------
+const PROGRESS_STEPS = ['draft', 'lineup', 'season', 'playoffs', 'result'];
+function updateProgress(activeId) {
+  const bar = $('progress-bar');
+  const inGame = PROGRESS_STEPS.includes(activeId) || activeId === 'recap' || activeId === 'freeagency';
+  bar.classList.toggle('active', inGame);
+  if (!inGame) return;
+  const effective = activeId === 'recap' || activeId === 'freeagency' ? 'draft' : activeId;
+  const dots = bar.querySelectorAll('.progress-dot');
+  const lines = bar.querySelectorAll('.progress-line');
+  const idx = PROGRESS_STEPS.indexOf(effective);
+  dots.forEach((dot, i) => {
+    dot.classList.toggle('done', i < idx);
+    dot.classList.toggle('active', i === idx);
+  });
+  lines.forEach((line, i) => line.classList.toggle('done', i < idx));
+}
+
 function show(id) {
   document.querySelectorAll('main > section').forEach((s) => (s.hidden = true));
   $(id).hidden = false;
+  updateProgress(id);
   window.scrollTo(0, 0);
 }
 
@@ -30,6 +59,7 @@ async function api(path, options) {
 const fmt = (n) => (typeof n === 'number' ? n.toFixed(1) : n);
 const pct = (n) => (typeof n === 'number' ? (n * 100).toFixed(1) + '%' : '—');
 const halfBadge = (half) => (half === 'first' ? ' <span class="half-badge first">1st half only</span>' : (half === 'second' ? ' <span class="half-badge second">2nd half only</span>' : ''));
+const growthBadge = (p) => (p.delta == null ? '' : (p.delta > 0 ? ` <span class="good">▲${p.delta}</span>` : p.delta < 0 ? ` <span class="bad">▼${Math.abs(p.delta)}</span>` : ''));
 
 // ---------- Session ID (view / switch your save) ----------
 function initSessionUI() {
@@ -160,17 +190,29 @@ function renderTrophies(trophies) {
   const group = (title, list, item) => list.length
     ? `<div class="trophy-group"><div class="trophy-title">${title} × ${list.length}</div>${list.map(item).join('')}</div>`
     : '';
+  const season = (t) => (t.season_number > 0 ? ` <span class="muted">· S${t.season_number}</span>` : '');
+  const teamItem = (t) => `<div class="trophy-item">${t.team_name}${season(t)}</div>`;
+  const playerItem = (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span>${season(t)}</div>`;
   box.innerHTML =
-    group('🏆 NBA Championship', trophies.filter((t) => t.type === 'championship'), (t) => `<div class="trophy-item">${t.team_name}</div>`) +
-    group('🏆 Eastern Conference Champion', trophies.filter((t) => t.type === 'east_champion'), (t) => `<div class="trophy-item">${t.team_name}</div>`) +
-    group('🏆 Western Conference Champion', trophies.filter((t) => t.type === 'west_champion'), (t) => `<div class="trophy-item">${t.team_name}</div>`) +
-    group('🏆 Regular Season MVP', trophies.filter((t) => t.type === 'season_mvp'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`) +
-    group('🛡️ Defensive Player', trophies.filter((t) => t.type === 'dpoy'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`) +
-    group('🔥 Sixth Man', trophies.filter((t) => t.type === 'six_man'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`) +
-    group('🌟 All-NBA First Team', trophies.filter((t) => t.type === 'all_nba'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`) +
-    group('🏅 Finals MVP', trophies.filter((t) => t.type === 'finals_mvp'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`) +
-    group('🏅 Eastern Conference Finals MVP', trophies.filter((t) => t.type === 'east_mvp'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`) +
-    group('🏅 Western Conference Finals MVP', trophies.filter((t) => t.type === 'west_mvp'), (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span></div>`);
+    group('🏆 NBA Championship', trophies.filter((t) => t.type === 'championship'), teamItem) +
+    group('🏆 Eastern Conference Champion', trophies.filter((t) => t.type === 'east_champion'), teamItem) +
+    group('🏆 Western Conference Champion', trophies.filter((t) => t.type === 'west_champion'), teamItem) +
+    group('🏆 Regular Season MVP', trophies.filter((t) => t.type === 'season_mvp'), playerItem) +
+    group('🛡️ Defensive Player', trophies.filter((t) => t.type === 'dpoy'), playerItem) +
+    group('🔥 Sixth Man', trophies.filter((t) => t.type === 'six_man'), playerItem) +
+    group('🌟 All-NBA First Team', trophies.filter((t) => t.type === 'all_nba'), playerItem) +
+    group('🏅 Finals MVP', trophies.filter((t) => t.type === 'finals_mvp'), playerItem) +
+    group('🏅 Eastern Conference Finals MVP', trophies.filter((t) => t.type === 'east_mvp'), playerItem) +
+    group('🏅 Western Conference Finals MVP', trophies.filter((t) => t.type === 'west_mvp'), playerItem);
+}
+
+async function loadHallOfFame() {
+  try {
+    const { legends } = await api('/api/halloffame');
+    const box = $('hall-of-fame');
+    if (!legends.length) { box.innerHTML = '<span class="muted">No legends yet.</span>'; return; }
+    box.innerHTML = `<div class="chip-list">${legends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team} · S${l.season})</span></span>`).join('')}</div>`;
+  } catch (e) { /* best-effort */ }
 }
 
 async function loadCareer() {
@@ -180,7 +222,30 @@ async function loadCareer() {
     : '<span class="muted">No history yet.</span>';
 }
 
-async function goHome() { show('home'); await loadCareer(); await loadSavedTeams(); await loadTrophies(); await loadResume(); }
+async function goHome() {
+  show('home');
+  // hide all expandable panels
+  ['new-run-panel', 'library-panel', 'matchup-panel-wrap'].forEach((id) => { if ($(id)) $(id).hidden = true; });
+  await loadCareer(); await loadSavedTeams(); await loadTrophies(); await loadHallOfFame(); await loadResume();
+}
+
+// Home card click handlers
+$('new-run-card').addEventListener('click', () => {
+  const panel = $('new-run-panel');
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('lib-card').addEventListener('click', () => {
+  const panel = $('library-panel');
+  panel.hidden = false;
+  loadLibrary();
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('matchup-card').addEventListener('click', () => {
+  const panel = $('matchup-panel-wrap');
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 $('new-draft').addEventListener('click', async () => {
   const gameMode = document.querySelector('input[name=game-mode]:checked').value;
@@ -228,13 +293,14 @@ async function loadResume() {
 
 function resumeLabel(r) {
   const name = r.teamName || 'My Team';
-  const season = r.gameMode === 'dynasty' ? ` · S${r.seasonNumber}` : '';
-  // offseason free-agency draft (dynasty) is still phase 'draft' but with open picks
+  const season = r.seasonLabel ? ` · ${r.seasonLabel}` : '';
+  // annual rookie draft (dynasty) is still phase 'draft' but with open picks
   const phase = r.phase === 'draft' && r.offseasonPicks > 0
-    ? `Free agency (${r.offseasonPicks} pick${r.offseasonPicks > 1 ? 's' : ''} left)`
+    ? `Rookie draft (${r.offseasonPicks} pick${r.offseasonPicks > 1 ? 's' : ''} left)`
     : ({
         draft: `Draft (${r.rosterCount}/${r.rosterSize} picked)`,
         lineup: 'Set your starting 5',
+        freeagency: 'Offseason free agency',
         preseason: 'Ready for the regular season',
         midseason: `Mid-season (${r.midseason ? r.midseason.wins + '-' + r.midseason.losses : '?'})`,
         season: 'Season complete',
@@ -264,7 +330,7 @@ $('continue-run').addEventListener('click', async () => {
       case 'finished': showResult(); break;
       default: show('home');
     }
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 });
 
 function resumePlayoffs(p) {
@@ -321,20 +387,35 @@ async function loadDraft() {
   const j = await api('/api/draft');
   $('reroll-count').textContent = j.rerolls;
   $('draft-progress').textContent = `${j.rosterCount} / ${j.rosterSize} picked`;
-  // offseason free-agency draft (dynasty) has a different title/description
+  // annual rookie draft (dynasty): full board + draft position + pick log, no re-roll
+  $('reroll').hidden = j.offseason;
   if (j.offseason) {
-    $('draft-title').firstChild.textContent = 'Free Agency ';
-    $('draft-desc').textContent = `Sign ${j.offseasonPicks} young free agent${j.offseasonPicks > 1 ? 's' : ''} to replace your retirees.`;
+    $('draft-title').firstChild.textContent = 'Rookie Draft ';
+    const pos = j.userPosition ? `You pick at #${j.userPosition} · ` : '';
+    $('draft-desc').textContent = `${pos}Draft ${j.offseasonPicks} rookie${j.offseasonPicks > 1 ? 's' : ''} to replace your retirees.`;
+    renderDraftPicks(j.picks);
   } else {
     $('draft-title').firstChild.textContent = 'Draft ';
     $('draft-desc').textContent = 'Pick 1 of 5 players each round, until you have 10.';
+    $('draft-picks').hidden = true;
   }
   state.hardMode = j.hardMode;
   state.budget = j.budget;
   state.spent = j.spent;
   await renderDraftRoster();
-  if (j.rosterCount >= j.rosterSize) { show('lineup'); await loadLineup(); return; }
+  if (j.rosterCount >= j.rosterSize) {
+    if (state.offseasonFlow) { state.offseasonFlow = false; show('freeagency'); await loadFreeAgency(); }
+    else { show('lineup'); await loadLineup(); }
+    return;
+  }
   renderCandidates(j.candidates);
+}
+
+function renderDraftPicks(picks) {
+  const box = $('draft-picks');
+  if (!picks || !picks.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<b>Draft so far</b><div class="draft-picks-list">${picks.map((p) => `<span class="chip">${p.team} → ${p.player} <span class="muted">(${p.position} · OVR ${p.overall})</span></span>`).join('')}</div>`;
 }
 
 function renderCandidates(candidates) {
@@ -357,7 +438,7 @@ function renderCandidates(candidates) {
       <div class="stats">Age ${c.age}</div>
       ${blind
         ? '<div class="stats">Ratings hidden (blind draft)</div>'
-        : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
+        : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b> <span class="pot">★${c.potential}</span></div>
            <div class="stats">${c.pts} pts · ${c.trb} reb · ${c.ast} ast</div>`}
       ${need ? '<div class="need-badge">Need ' + c.position + '</div>' : ''}
       ${!blind && state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
@@ -366,7 +447,7 @@ function renderCandidates(candidates) {
       try {
         await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
         await loadDraft();
-      } catch (e) { alert(e.message); }
+      } catch (e) { toast(e.message, 'error'); }
     });
     box.appendChild(card);
   }
@@ -376,6 +457,80 @@ $('reroll').addEventListener('click', async () => {
   const j = await api('/api/draft/reroll', { method: 'POST' });
   $('reroll-count').textContent = j.rerolls;
   renderCandidates(j.candidates);
+});
+
+// ---------- Offseason Free Agency ----------
+async function loadFreeAgency() {
+  const j = await api('/api/freeagency');
+  renderFARoster(j.roster);
+  renderFACandidates(j.candidates);
+}
+
+function renderFARoster(roster) {
+  const box = $('fa-roster');
+  box.innerHTML = `<b>Your roster</b> <span class="muted">(${roster.length}/10)</span>` +
+    roster.map((p) => `
+      <div class="fa-row">
+        <span>${p.name} <span class="pos">${p.position}</span>${p.age != null ? ` <span class="muted">${p.age}yo</span>` : ''} <span class="muted">OVR ${p.overall}</span>${p.contract != null ? ` · <span class="muted">${p.contract}yr</span>` : ''}</span>
+        <button data-id="${p.id}" class="ghost">Release</button>
+      </div>`).join('');
+  box.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      await api('/api/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +b.dataset.id }) });
+      await loadFreeAgency();
+    } catch (e) { toast(e.message, 'error'); }
+  }));
+}
+
+function renderFACandidates(candidates) {
+  const box = $('fa-candidates');
+  box.innerHTML = '';
+  for (const c of candidates) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-top"><strong>${c.name}</strong><span class="pos">${c.position}${c.position2 ? '/' + c.position2 : ''}</span></div>
+      <div class="stats">Age ${c.age} · OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
+      <div class="stats">${c.pts} pts · ${c.trb} reb · ${c.ast} ast</div>
+      <button data-id="${c.id}">Sign</button>`;
+    card.querySelector('button').addEventListener('click', async () => {
+      try {
+        await api('/api/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
+        await loadFreeAgency();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    box.appendChild(card);
+  }
+}
+
+$('fa-done').addEventListener('click', async () => {
+  try {
+    await api('/api/freeagency/done', { method: 'POST' });
+    await loadLineup();
+    show('lineup');
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// ---------- Offseason Recap ----------
+function renderRecap(recap) {
+  const box = $('recap-body');
+  if (!recap) { box.innerHTML = '<p class="muted">Season complete.</p>'; return; }
+  const champ = recap.champion ? `<p><b>🏆 Champion:</b> ${recap.champion}</p>` : '';
+  const mvp = recap.mvp ? `<p><b>🌟 Regular-season MVP:</b> ${recap.mvp.player} <span class="muted">(${recap.mvp.team})</span></p>` : '';
+  const legends = recap.retiredLegends && recap.retiredLegends.length
+    ? `<div class="panel"><b>Retired this offseason:</b><div class="chip-list">${recap.retiredLegends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team})</span></span>`).join('')}</div></div>`
+    : '<p class="muted">No retirements this offseason.</p>';
+  box.innerHTML = champ + mvp + legends;
+}
+
+$('recap-continue').addEventListener('click', async () => {
+  if (state.pendingOffseasonPicks > 0) {
+    show('draft');
+    await loadDraft();
+  } else {
+    show('freeagency');
+    await loadFreeAgency();
+  }
 });
 
 // ---------- Lineup ----------
@@ -507,7 +662,7 @@ $('confirm-lineup').addEventListener('click', async () => {
       $('season-result').innerHTML = '';
       show('season');
     }
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 });
 
 // ---------- Season ----------
@@ -597,7 +752,7 @@ async function doTrade(myPlayerIds, aiPlayerIds, msgEl, force = false) {
 function renderTradeUI() {
   const panel = $('trade-panel');
   panel.hidden = false;
-  panel.innerHTML = '<p class="muted">Loading…</p>';
+  panel.innerHTML = '<div class="skeleton skeleton-line w-80"></div><div class="skeleton skeleton-line w-60"></div><div class="skeleton skeleton-line w-80"></div>';
   api('/api/trade/pool').then(({ myRoster, aiPlayers, remainingPoints, leagueTradeLog }) => {
     tradePool = { myRoster, aiPlayers };
     const teams = [...new Set(aiPlayers.map((p) => p.team))];
@@ -905,7 +1060,7 @@ function renderRoundResults(j) {
 
 function showResult() {
   show('result');
-  $('result-body').innerHTML = '<p class="muted">Loading…</p>';
+  $('result-body').innerHTML = '<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div><div class="skeleton skeleton-line w-60"></div>';
   api('/api/result').then((r) => {
     const champ = r.playoff ? r.playoff.champion : null;
     const eliminated = r.playoff ? r.playoff.userEliminated : false;
@@ -928,16 +1083,18 @@ function showResult() {
 
     // dynasty progress + history
     const isDynasty = r.gameMode === 'dynasty';
-    const seasonHeader = isDynasty ? `Season ${r.seasonNumber} of ${r.dynastyMax}` : 'Season';
+    const seasonHeader = isDynasty ? `${r.seasonLabel} · ${r.seasonNumber}/${r.dynastyMax}` : `${r.seasonLabel} Season`;
     const history = (r.seasonHistory || []);
     const historyHtml = history.length ? `
       <div class="dynasty-history">
         <h3>Dynasty History</h3>
         <div class="table-scroll"><table>
-          <thead><tr><th>Season</th><th>Record</th><th>Result</th></tr></thead>
+          <thead><tr><th>Season</th><th>Record</th><th>Champion</th><th>MVP</th><th>Result</th></tr></thead>
           <tbody>${history.map((h) => `<tr>
-            <td class="num">${h.season}</td>
+            <td class="num">${h.seasonLabel || h.season}</td>
             <td>${h.wins}-${h.losses}</td>
+            <td>${h.champion ? (h.userChampion ? `<b>${h.champion}</b> (you)` : h.champion) : '—'}</td>
+            <td>${h.mvp || '—'}</td>
             <td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td>
           </tr>`).join('')}</tbody>
         </table></div>
@@ -961,8 +1118,8 @@ function showResult() {
       ${myAwards.length ? `<div class="result-awards">${myAwards.map((a) => `<span class="chip">${a}</span>`).join('')}</div>` : ''}
       ${historyHtml}
       <div class="result-roster">
-        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
-        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}</span>`).join('')}</div></div>
+        <div><b>Starters</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${p.contract != null ? ` <span class="muted">· ${p.contract}yr</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${p.potential ? ` <span class="pot">★${p.potential}</span>` : ''}${growthBadge(p)}</span>`).join('')}</div></div>
+        <div><b>Bench</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}yo</span>${p.contract != null ? ` <span class="muted">· ${p.contract}yr</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${p.potential ? ` <span class="pot">★${p.potential}</span>` : ''}${growthBadge(p)}</span>`).join('')}</div></div>
       </div>
       ${top.length ? `<div class="result-top"><b>Top scorers</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} pts</span></span>`).join('')}</div></div>` : ''}
       ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>Team leaders</b><div class="chip-list">${
@@ -976,19 +1133,12 @@ function showResult() {
     $('next-season')?.addEventListener('click', async () => {
       try {
         const j = await api('/api/next-season', { method: 'POST' });
-        let msg = 'Advancing to next season';
-        if (j.retirements && j.retirements.length) msg += ` · retired ${j.retirements.join(', ')}`;
         state.midSeason = null;
-        if (j.offseasonPicks > 0) {
-          show('draft');
-          await loadDraft();
-          alert(`${msg} — sign ${j.offseasonPicks} free agent${j.offseasonPicks > 1 ? 's' : ''} to fill the roster.`);
-        } else {
-          await loadLineup();
-          show('lineup');
-          if (msg !== 'Advancing to next season') alert(msg);
-        }
-      } catch (e) { alert(e.message); }
+        state.offseasonFlow = true;
+        state.pendingOffseasonPicks = j.offseasonPicks;
+        renderRecap(j.seasonRecap);
+        show('recap');
+      } catch (e) { toast(e.message, 'error'); }
     });
     $('print-summary').addEventListener('click', () => printSummary(r));
     $('back-home-final').addEventListener('click', () => { goHome(); });
@@ -999,10 +1149,10 @@ function showResult() {
 // download it as a .html file the user can open/print/save as PDF.
 function printSummary(r) {
   const isDynasty = r.gameMode === 'dynasty';
-  const title = isDynasty ? `${r.teamName} — Dynasty (${r.seasonNumber} of ${r.dynastyMax} seasons)` : `${r.teamName} — Season Summary`;
+  const title = isDynasty ? `${r.teamName} — Dynasty (${r.seasonNumber}/${r.dynastyMax} · ${r.seasonLabel})` : `${r.teamName} — ${r.seasonLabel} Season Summary`;
   const history = r.seasonHistory || [];
   const historyRows = history.map((h) => `
-    <tr><td>Season ${h.season}</td><td>${h.wins}-${h.losses}</td><td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td></tr>`).join('');
+    <tr><td>${h.seasonLabel || 'Season ' + h.season}</td><td>${h.wins}-${h.losses}</td><td>${h.result === 'champion' ? '🏆 Champion' : h.result === 'missed_playoffs' ? 'Missed playoffs' : h.result.startsWith('eliminated') ? `Eliminated R${h.result.split('_r')[1]}` : 'Playoffs'}</td></tr>`).join('');
 
   const awards = [];
   if (r.awards) {

@@ -42,6 +42,7 @@ function playerBrief(p) {
     fgPct: p.fg_pct, threePct: p.three_pct, ftPct: p.ft_pct,
     rating: +sim.powerRating(p).toFixed(1),
     salary: sim.playerSalary(p.overall),
+    potential: sim.potentialGrade(p.name),
   };
 }
 
@@ -74,7 +75,8 @@ app.get('/api/players', (req, res) => {
   const dir = order === 'asc' ? 'ASC' : 'DESC';
   let sql = 'SELECT id, name, position, position2, age, overall, pts, trb, ast, stl, blk, oepm, depm, epm FROM players';
   const params = [];
-  const where = [];
+  const where = ['(session_id IS NULL OR session_id = ?)'];
+  params.push(currentSession());
   if (pos && ['PG', 'SG', 'SF', 'PF', 'C'].includes(pos)) { where.push('position = ?'); params.push(pos); }
   if (q) { where.push('name LIKE ?'); params.push(`%${q}%`); }
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
@@ -141,10 +143,10 @@ app.post('/api/matchup', (req, res) => {
 
 // ---- draft ----
 app.get('/api/draft', (req, res) => {
-  // offseason free-agency draft (retirements opened slots) uses young candidates
+  // annual rookie draft (retirements opened slots) draws from this year's draft class
   const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
   const offseason = offseasonPicks > 0;
-  let candidates = offseason ? sim.freeAgentCandidates(db) : sim.draftCandidates(db);
+  let candidates = offseason ? draftBoard() : sim.draftCandidates(db);
   const hard = getState('difficulty') === 'hard';
   const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const spent = hard
@@ -154,13 +156,14 @@ app.get('/api/draft', (req, res) => {
 
   // hard mode: guarantee at least one candidate fits the budget (reserving the pool's
   // minimum salary for every remaining pick), so you can always finish the draft.
-  if (hard) {
+  // (initial draft only — the annual rookie draft replaces retirees, no budget needed.)
+  if (hard && !offseason) {
     const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m);
     const remaining = sim.HARD_MODE_BUDGET - spent;
     const usable = remaining - (sim.ROSTER_SIZE - rosterCount - 1) * minSalary;
     if (!candidates.some(c => sim.playerSalary(c.overall) <= usable)) {
       const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
-      const affordable = db.prepare('SELECT * FROM players').all()
+      const affordable = db.prepare('SELECT * FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession())
         .filter(p => !drafted.has(p.id) && sim.playerSalary(p.overall) <= usable);
       if (affordable.length) candidates[0] = sim.shuffle(affordable)[0];
     }
@@ -176,6 +179,9 @@ app.get('/api/draft', (req, res) => {
     spent: hard ? spent : null,
     offseason,
     offseasonPicks,
+    draftBoard: offseason ? candidates.map(playerBrief) : null,
+    userPosition: offseason ? draftUserPosition() : null,
+    picks: offseason ? (getState('draft_picks') ? JSON.parse(getState('draft_picks')) : []) : [],
   });
 });
 app.post('/api/draft/reroll', (req, res) => {
@@ -183,7 +189,7 @@ app.post('/api/draft/reroll', (req, res) => {
   if (rerolls <= 0) return res.status(400).json({ error: 'No rerolls left' });
   setState('rerolls', rerolls - 1);
   const offseason = parseInt(getState('offseason_picks') || '0', 10) > 0;
-  const candidates = offseason ? sim.freeAgentCandidates(db) : sim.draftCandidates(db);
+  const candidates = offseason ? draftBoard() : sim.draftCandidates(db);
   res.json({ rerolls: rerolls - 1, candidates: candidates.map(playerBrief) });
 });
 app.post('/api/roster', (req, res) => {
@@ -211,16 +217,35 @@ app.post('/api/roster', (req, res) => {
   }
 
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), playerId, 'bench', null);
-  // initialize dynasty age for this player (base age, unless already tracked), by NAME
+  // initialize dynasty age + contract for this player (by NAME, unless already tracked)
   const ages = playerAges();
-  const pname = db.prepare('SELECT name, age FROM players WHERE id = ?').get(playerId);
-  if (pname && ages[pname.name] == null) { ages[pname.name] = pname.age; setPlayerAges(ages); }
-  // offseason free-agency draft: decrement remaining picks; when done, go to lineup
+  const contracts = playerContracts();
+  const pname = db.prepare('SELECT name, age, session_id FROM players WHERE id = ?').get(playerId);
+  if (pname) {
+    if (ages[pname.name] == null) ages[pname.name] = pname.age;
+    seedContract(contracts, pname.name, pname.session_id != null); // generated rookie → 4yr, else veteran
+    setPlayerAges(ages);
+    setPlayerContracts(contracts);
+  }
+  // annual rookie draft: record the pick, decrement remaining picks; when done, the
+  // AI teams behind the user in the order auto-draft.
   const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
   if (offseasonPicks > 0) {
+    const p = db.prepare('SELECT name, position, overall FROM players WHERE id = ?').get(playerId);
+    const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
+    picks.push({ team: getState('team_name') || 'My Team', player: p.name, position: p.position, overall: p.overall });
+    setState('draft_picks', JSON.stringify(picks));
+
     const remaining = offseasonPicks - 1;
-    if (remaining <= 0) { setState('offseason_picks', '0'); setState('phase', 'lineup'); }
-    else setState('offseason_picks', String(remaining));
+    if (remaining <= 0) {
+      setState('offseason_picks', '0');
+      const afterUser = getState('draft_pending_after') ? JSON.parse(getState('draft_pending_after')) : [];
+      runAIDraft(afterUser);
+      clearDraftState();
+      setState('phase', 'freeagency');
+    } else {
+      setState('offseason_picks', String(remaining));
+    }
   } else if (count + 1 >= sim.ROSTER_SIZE) {
     setState('phase', 'lineup');
   }
@@ -230,7 +255,58 @@ app.post('/api/roster', (req, res) => {
 // ---- roster / lineup ----
 app.get('/api/roster', (req, res) => {
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
-  res.json({ roster: roster.map(p => ({ ...playerBrief(p), role: p.role, slot: p.slot })), rosterSize: sim.ROSTER_SIZE, starterCount: sim.STARTER_COUNT });
+  const contracts = playerContracts();
+  res.json({ roster: roster.map(p => ({ ...playerBrief(p), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })), rosterSize: sim.ROSTER_SIZE, starterCount: sim.STARTER_COUNT });
+});
+
+// ---- offseason free agency (dynasty) ----
+app.get('/api/freeagency', (req, res) => {
+  const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
+  const contracts = playerContracts();
+  res.json({
+    roster: roster.map((p) => ({ ...playerBrief(p), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })),
+    rosterSize: sim.ROSTER_SIZE,
+    candidates: sim.freeAgentCandidates(db).map(playerBrief),
+  });
+});
+
+app.post('/api/release', (req, res) => {
+  const { playerId } = req.body || {};
+  if (!playerId) return res.status(400).json({ error: 'playerId required' });
+  const session = currentSession();
+  const row = db.prepare('SELECT p.name FROM roster r JOIN players p ON p.id = r.player_id WHERE r.player_id = ? AND r.session_id = ?').get(playerId, session);
+  if (!row) return res.status(400).json({ error: 'Player not on your roster' });
+  db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(playerId, session);
+  const contracts = playerContracts();
+  delete contracts[row.name];
+  setPlayerContracts(contracts);
+  res.json({ ok: true });
+});
+
+app.post('/api/sign', (req, res) => {
+  const { playerId } = req.body || {};
+  if (!playerId) return res.status(400).json({ error: 'playerId required' });
+  const session = currentSession();
+  const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(session).c;
+  if (count >= sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster full — release a player first' });
+  const p = db.prepare('SELECT name, age, session_id FROM players WHERE id = ?').get(playerId);
+  if (!p) return res.status(400).json({ error: 'Player not found' });
+  db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(session, playerId, 'bench', null);
+  const ages = playerAges();
+  const contracts = playerContracts();
+  if (ages[p.name] == null) ages[p.name] = p.age;
+  seedContract(contracts, p.name, p.session_id != null);
+  setPlayerAges(ages);
+  setPlayerContracts(contracts);
+  res.json({ ok: true, rosterCount: count + 1 });
+});
+
+// Leave free agency and move to the lineup (roster must be full).
+app.post('/api/freeagency/done', (req, res) => {
+  const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+  if (count !== sim.ROSTER_SIZE) return res.status(400).json({ error: `Roster must be full (${sim.ROSTER_SIZE}) before continuing` });
+  setState('phase', 'lineup');
+  res.json({ ok: true });
 });
 app.post('/api/lineup', (req, res) => {
   const { teamName, conference, replacedTeam, starters } = req.body || {};
@@ -274,66 +350,173 @@ app.post('/api/reset', (req, res) => {
 });
 
 // ---- dynasty: advance to the next season ----
-// Age everyone +1, retire players past 36, clear the season's transient state, then
-// return to lineup — or to an offseason free-agency draft if retirements opened slots.
-const RETIRE_AGE = 36;
+// Persist this season's (post-trade) AI rosters, age the whole league +1, retire
+// players past their caliber-based retirement age, generate a rookie class, then run
+// the annual draft: the user picks first (one per retiree), then AI teams auto-pick.
 const DYNASTY_MAX_SEASONS = 10;
 
 app.post('/api/next-season', (req, res) => {
   const isDynasty = getState('game_mode') === 'dynasty';
   const seasonNumber = parseInt(getState('season_number') || '1', 10);
+  const session = currentSession();
+
+  // Persist this season's AI rosters (post-trade) into league_teams so trades carry over.
+  const rawLeague = getState('season_league');
+  if (rawLeague) persistLeague(JSON.parse(rawLeague));
+
+  // snapshot this season's (pre-morale) user overalls so next season's result screen
+  // can show each player's year-over-year growth.
+  const prevAges = playerAges();
+  const prevRosterRows = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
+  const prevOveralls = {};
+  for (const p of prevRosterRows) {
+    const curAge = prevAges[p.name] != null ? prevAges[p.name] : p.age;
+    prevOveralls[p.name] = sim.effectiveOverall(p.overall, p.age, curAge, p.name);
+  }
+  setState('prev_overalls', JSON.stringify(prevOveralls));
 
   // append this season's outcome to the dynasty history before clearing transient state
   const record = getState('season_record') ? JSON.parse(getState('season_record')) : null;
   const playoff = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
+  const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
   let history = getState('season_history') ? JSON.parse(getState('season_history')) : [];
   if (record) {
     const champion = playoff && playoff.champion;
     const userChampion = champion != null && !playoff.userEliminated;
+    const mvp = seasonResult && seasonResult.awards && seasonResult.awards.mvp ? seasonResult.awards.mvp.player : null;
     history.push({
       season: seasonNumber,
       wins: record.wins, losses: record.losses,
       result: userChampion ? 'champion' : (playoff && playoff.userEliminated ? `eliminated_r${playoff.userEliminatedRound || '?'}` : (playoff ? 'playoffs' : 'missed_playoffs')),
-      champion: userChampion,
+      champion: champion || null, // champion team name
+      userChampion,
+      mvp,
     });
   }
 
-  const ages = playerAges();
-  const roster = db.prepare('SELECT r.player_id, p.name, p.age FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession());
+  // full draft order (worst record first, user included) from this season's standings
+  const standings = getState('season_standings') ? JSON.parse(getState('season_standings')) : null;
+  const userTeamName = getState('team_name') || 'My Team';
+  let fullOrder = [];
+  if (standings) {
+    fullOrder = [...standings.east, ...standings.west]
+      .sort((a, b) => a.wins - b.wins)
+      .map((t) => t.name);
+  } else {
+    fullOrder = [userTeamName, ...sim.shuffle(sim.NBA_TEAMS.map((t) => t.name)).slice(0, 29)];
+  }
+  const userIndex = fullOrder.indexOf(userTeamName);
 
-  const retirements = [];
+  // age the whole league +1, then retire each player past their caliber-based age
+  const ages = playerAges();
+  for (const name of Object.keys(ages)) ages[name] += 1;
+
+  const retirements = []; // user retirees (names)
+  const userRetirePositions = []; // user retirees' positions (for draft needs)
+  const retiredLegends = []; // hall-of-fame worthy retirees (overall >= 85)
+  const roster = db.prepare('SELECT r.player_id, p.name, p.age, p.overall, p.position FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
   for (const row of roster) {
-    const cur = ages[row.name] != null ? ages[row.name] : row.age;
-    const next = cur + 1;
-    if (next >= RETIRE_AGE) {
+    if (ages[row.name] != null && ages[row.name] >= sim.retireAge(row.overall)) {
       retirements.push(row.name);
-      db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(row.player_id, currentSession());
+      userRetirePositions.push(row.position);
+      if (row.overall >= 85) retiredLegends.push({ name: row.name, position: row.position, overall: row.overall, team: userTeamName, isUser: true });
+      db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(row.player_id, session);
       delete ages[row.name];
-    } else {
-      ages[row.name] = next;
+    }
+  }
+
+  const aiNeeds = {}; // team_name -> [retired positions]
+  const aiRows = db.prepare('SELECT lt.team_name, lt.player_id, p.name, p.overall, p.position FROM league_teams lt JOIN players p ON p.id = lt.player_id WHERE lt.session_id = ?').all(session);
+  for (const r of aiRows) {
+    if (ages[r.name] != null && ages[r.name] >= sim.retireAge(r.overall)) {
+      (aiNeeds[r.team_name] = aiNeeds[r.team_name] || []).push(r.position);
+      if (r.overall >= 85) retiredLegends.push({ name: r.name, position: r.position, overall: r.overall, team: r.team_name, isUser: false });
+      db.prepare('DELETE FROM league_teams WHERE player_id = ? AND session_id = ?').run(r.player_id, session);
+      delete ages[r.name];
     }
   }
   setPlayerAges(ages);
 
+  // enshrine hall-of-fame worthy retirees
+  if (retiredLegends.length) {
+    const hof = getState('hall_of_fame') ? JSON.parse(getState('hall_of_fame')) : [];
+    for (const l of retiredLegends) hof.push({ ...l, season: seasonNumber });
+    setState('hall_of_fame', JSON.stringify(hof));
+  }
+
+  // decrement contracts league-wide; expired deals auto-renew (2-4yr). Drop retired
+  // players' contracts so the map stays in sync with the rosters.
+  const contracts = playerContracts();
+  const alive = new Set(Object.keys(ages));
+  for (const name of Object.keys(contracts)) {
+    if (!alive.has(name)) { delete contracts[name]; continue; } // retired
+    contracts[name] -= 1;
+    if (contracts[name] <= 0) contracts[name] = veteranContract();
+  }
+  setPlayerContracts(contracts);
+
+  // settle season morale for the user's surviving players: winning lifts it, losing
+  // drags it, and bench players grow dissatisfied with a smaller role.
+  const morale = playerMorale();
+  const winPct = record ? record.wins / (record.wins + record.losses) : 0.5;
+  const moraleRows = db.prepare('SELECT p.name, r.role FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
+  for (const row of moraleRows) {
+    let m = morale[row.name] || 0;
+    if (winPct > 0.6) m += 2;
+    else if (winPct < 0.4) m -= 2;
+    if (row.role === 'bench') m -= 1;
+    morale[row.name] = Math.max(-5, Math.min(5, m));
+  }
+  setPlayerMorale(morale);
+
+  const totalRetirees = retirements.length + Object.values(aiNeeds).reduce((a, b) => a + b.length, 0);
+
   // reset transient season state, keep identity + dynasty + difficulty/mode + history
-  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages'];
+  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_morale', 'prev_overalls', 'hall_of_fame'];
   const keepVals = {};
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
-  db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
+  db.prepare('DELETE FROM state WHERE session_id = ?').run(session);
   for (const [k, v] of Object.entries(keepVals)) setState(k, v);
   setState('season_history', JSON.stringify(history));
   setState('season_number', String(seasonNumber + 1));
   setState('rerolls', String(sim.REROLLS_PER_RUN));
 
-  // open slots from retirements become an offseason free-agency draft (1 pick each)
+  // generate this year's rookie class and set up the annual draft
+  if (totalRetirees > 0) {
+    const rookies = sim.generateDraftClass(db, totalRetirees + 5);
+    setState('draft_class', JSON.stringify(rookies.map((r) => r.id)));
+    setState('draft_order', JSON.stringify(fullOrder));
+    setState('draft_needs', JSON.stringify({ ...aiNeeds, [userTeamName]: userRetirePositions }));
+    setState('draft_picks', '[]');
+  }
+
+  // user picks at their own slot (worst record first): AI teams ahead of the user pick
+  // first, then the user, then the rest.
   if (retirements.length > 0) {
+    runAIDraft(fullOrder.slice(0, userIndex));
+    setState('draft_pending_after', JSON.stringify(fullOrder.slice(userIndex + 1)));
     setState('offseason_picks', String(retirements.length));
     setState('phase', 'draft');
   } else {
-    setState('phase', 'lineup');
+    runAIDraft(fullOrder.filter((n) => n !== userTeamName));
+    clearDraftState();
+    setState('phase', 'freeagency');
   }
 
-  res.json({ ok: true, retirements, offseasonPicks: retirements.length, seasonNumber: seasonNumber + 1, isFinal: isDynasty && seasonNumber >= DYNASTY_MAX_SEASONS });
+  res.json({
+    ok: true,
+    retirements,
+    aiRetirees: aiNeeds,
+    offseasonPicks: retirements.length,
+    seasonNumber: seasonNumber + 1,
+    isFinal: isDynasty && seasonNumber >= DYNASTY_MAX_SEASONS,
+    seasonRecap: {
+      season: seasonNumber,
+      champion: playoff ? playoff.champion : null,
+      mvp: seasonResult && seasonResult.awards && seasonResult.awards.mvp ? { player: seasonResult.awards.mvp.player, team: seasonResult.awards.mvp.team } : null,
+      retiredLegends,
+    },
+  });
 });
 
 // ---- save / load teams ----
@@ -398,7 +581,13 @@ app.delete('/api/teams/:id', (req, res) => {
 
 // ---- trophy room ----
 app.get('/api/trophies', (req, res) => {
-  res.json({ trophies: db.prepare('SELECT id, type, player_name, team_name, created_at FROM trophies WHERE session_id = ? ORDER BY id DESC').all(currentSession()) });
+  res.json({ trophies: db.prepare('SELECT id, type, player_name, team_name, season_number, created_at FROM trophies WHERE session_id = ? ORDER BY season_number DESC, id DESC').all(currentSession()) });
+});
+
+// Hall of Fame: retired legends (overall >= 85) across this dynasty run.
+app.get('/api/halloffame', (req, res) => {
+  const hof = getState('hall_of_fame') ? JSON.parse(getState('hall_of_fame')) : [];
+  res.json({ legends: hof });
 });
 
 // ---- regular season (split into two halves with a mid-season lineup adjustment) ----
@@ -411,6 +600,7 @@ function getConfig() {
     replacedTeam: getState('replaced_team') || 'Boston Celtics',
     teamName: getState('team_name') || 'My Team',
     hard: getState('difficulty') === 'hard',
+    seasonNumber: parseInt(getState('season_number') || '1', 10),
   };
 }
 
@@ -427,8 +617,8 @@ function getUserTeam() {
 // ---- dynasty (multi-season) ----
 // Each session tracks a per-player CURRENT age in state (`player_ages`, a JSON map
 // player NAME -> age). A player's effective overall is their base 2K overall plus the
-// age curve: young players rise to their peak, veterans decline. Applied only to the
-// user's own roster (AI teams regenerate fresh every season).
+// age curve: young players rise to their peak, veterans decline. Applied to the whole
+// league (user + all AI teams), which is persisted in `league_teams` across seasons.
 // Keyed by NAME (not id) so reseeds and export/import — which remap players by name —
 // preserve dynasty ages.
 function playerAges() {
@@ -439,16 +629,197 @@ function setPlayerAges(ages) {
   setState('player_ages', JSON.stringify(ages));
 }
 
-// Overwrite overall + age on the user's roster rows with their dynasty-adjusted values.
+// Per-player remaining contract years, keyed by NAME (same convention as player_ages
+// so reseeds/export-import preserve it). Rookies get a 4-year deal; veterans 2-4.
+function playerContracts() {
+  const raw = getState('player_contracts');
+  return raw ? JSON.parse(raw) : {};
+}
+function setPlayerContracts(contracts) {
+  setState('player_contracts', JSON.stringify(contracts));
+}
+const veteranContract = () => 2 + Math.floor(Math.random() * 3); // 2-4 years
+// Seed a contract length for `name` if not already tracked.
+function seedContract(contracts, name, isRookie) {
+  if (contracts[name] == null) contracts[name] = isRookie ? 4 : veteranContract();
+}
+
+// Season-level morale per player (keyed by NAME), range -5..5. Settled each offseason
+// from role + team record; nudges a player's effective overall by ~±3.
+function playerMorale() {
+  const raw = getState('player_morale');
+  return raw ? JSON.parse(raw) : {};
+}
+function setPlayerMorale(morale) {
+  setState('player_morale', JSON.stringify(morale));
+}
+
+// Overwrite overall + age on a team's roster rows with their dynasty-adjusted values,
+// plus a season-morale nudge (±3) and a fallback potential for new players.
 function applyDynasty(players) {
   const ages = playerAges();
+  const morale = playerMorale();
   for (const p of players) {
     if (ages[p.name] != null) {
-      p.overall = sim.effectiveOverall(p.overall, p.age, ages[p.name]);
+      p.overall = sim.effectiveOverall(p.overall, p.age, ages[p.name], p.name);
       p.age = ages[p.name];
     }
+    const m = morale[p.name] || 0;
+    if (m) p.overall = Math.max(40, p.overall + Math.round(m * 0.5));
   }
   return players;
+}
+
+// ---- dynasty league persistence (AI teams carry over and age) ----
+
+// Persist the freshly-built AI league into league_teams (season 1 only).
+function persistLeague(league) {
+  const session = currentSession();
+  db.prepare('DELETE FROM league_teams WHERE session_id = ?').run(session);
+  const ins = db.prepare('INSERT INTO league_teams (session_id, team_name, conf, player_id, role, slot) VALUES (?, ?, ?, ?, ?, ?)');
+  for (const t of league.teams) {
+    if (t.isUser) continue;
+    for (const p of t.players) ins.run(session, t.name, t.conf, p.id, p.role, p.slot);
+  }
+}
+
+// Seed player_ages + contracts for every AI player so the whole league ages.
+function seedLeagueAges(league) {
+  const ages = playerAges();
+  const contracts = playerContracts();
+  for (const t of league.teams) {
+    if (t.isUser) continue;
+    for (const p of t.players) {
+      if (ages[p.name] == null) ages[p.name] = p.age;
+      seedContract(contracts, p.name, false); // AI veterans
+    }
+  }
+  setPlayerAges(ages);
+  setPlayerContracts(contracts);
+}
+
+// Rank a 10-man team: top 5 by effective overall as starters at their natural slot.
+function assignLeagueRoles(players) {
+  const ranked = [...players].sort((a, b) => b.overall - a.overall || sim.powerRating(b) - sim.powerRating(a));
+  const starters = ranked.slice(0, sim.STARTER_COUNT);
+  const bench = ranked.slice(sim.STARTER_COUNT);
+  return [
+    ...starters.map((p) => ({ ...p, role: 'starter', slot: p.position })),
+    ...bench.map((p) => ({ ...p, role: 'bench', slot: null })),
+  ];
+}
+
+// Rebuild the league from persisted league_teams (season > 1): join players, apply the
+// dynasty age curve to every AI player, and re-rank roles.
+function rebuildLeague(userTeam, config) {
+  const session = currentSession();
+  const rows = db.prepare('SELECT team_name, conf, player_id FROM league_teams WHERE session_id = ?').all(session);
+  const byTeam = new Map();
+  for (const r of rows) {
+    if (!byTeam.has(r.team_name)) byTeam.set(r.team_name, { name: r.team_name, conf: r.conf, ids: [] });
+    byTeam.get(r.team_name).ids.push(r.player_id);
+  }
+  const playersById = new Map();
+  const ids = rows.map((r) => r.player_id);
+  if (ids.length) {
+    for (const p of db.prepare(`SELECT * FROM players WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)) playersById.set(p.id, p);
+  }
+  const aiTeams = [];
+  for (const t of byTeam.values()) {
+    const players = applyDynasty(t.ids.map((id) => playersById.get(id)).filter(Boolean));
+    aiTeams.push({ isUser: false, conf: t.conf, players: assignLeagueRoles(players), name: t.name });
+  }
+  return [{ isUser: true, conf: config.conference, players: userTeam, name: config.teamName || config.replacedTeam }, ...aiTeams];
+}
+
+// Resolve the league: build + persist on season 1; rebuild from the table after that.
+function resolveLeague(userTeam, config) {
+  const session = currentSession();
+  const existing = db.prepare('SELECT COUNT(*) c FROM league_teams WHERE session_id = ?').get(session).c;
+  if (existing === 0) {
+    const league = sim.buildLeague(db, userTeam, config);
+    persistLeague(league);
+    seedLeagueAges(league);
+    return league;
+  }
+  const teams = rebuildLeague(userTeam, config);
+  const aiBonus = config.hard ? sim.HARD_AI_BONUS : 0;
+  const strengthOf = (t) => sim.teamStrength(t.players) + (t.isUser ? 0 : aiBonus);
+  const leagueAvg = teams.reduce((s, t) => s + strengthOf(t), 0) / teams.length;
+  return { teams, leagueAvg, aiBonus };
+}
+
+// ---- annual rookie draft ----
+
+// This year's full draft board: every unclaimed rookie, best first.
+function draftBoard() {
+  const classIds = getState('draft_class') ? JSON.parse(getState('draft_class')) : [];
+  const session = currentSession();
+  const picked = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id));
+  const avail = classIds.filter((id) => !picked.has(id));
+  if (!avail.length) return [];
+  const players = db.prepare(`SELECT * FROM players WHERE id IN (${avail.map(() => '?').join(',')})`).all(...avail);
+  return players.sort((a, b) => b.overall - a.overall);
+}
+
+// Highest-overall available rookie, preferring a match on the wanted positions.
+function bestAvailableRookie(availableIds, wantedPositions = []) {
+  if (!availableIds.size) return null;
+  const ids = [...availableIds];
+  const players = db.prepare(`SELECT id, overall, position FROM players WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  if (wantedPositions.length) {
+    const matches = players.filter((p) => wantedPositions.includes(p.position));
+    if (matches.length) { matches.sort((a, b) => b.overall - a.overall); return matches[0].id; }
+  }
+  players.sort((a, b) => b.overall - a.overall);
+  return players[0].id;
+}
+
+// AI teams auto-pick in `teamsToPick` order, each taking rookies for its retired
+// positions. Records each pick into `draft_picks` for the draft-board view.
+function runAIDraft(teamsToPick) {
+  const classIds = getState('draft_class') ? JSON.parse(getState('draft_class')) : [];
+  const needs = getState('draft_needs') ? JSON.parse(getState('draft_needs')) : {};
+  if (!classIds.length || !teamsToPick || !teamsToPick.length) return;
+  const session = currentSession();
+  const picked = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id));
+  const available = new Set(classIds.filter((id) => !picked.has(id)));
+  const confOf = {};
+  for (const t of sim.NBA_TEAMS) confOf[t.name] = t.conf;
+  const ins = db.prepare('INSERT INTO league_teams (session_id, team_name, conf, player_id, role, slot) VALUES (?, ?, ?, ?, ?, ?)');
+  const ages = playerAges();
+  const contracts = playerContracts();
+  const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
+  for (const team of teamsToPick) {
+    const wanted = needs[team] || [];
+    for (const pos of wanted) {
+      const rookieId = bestAvailableRookie(available, [pos]);
+      if (rookieId == null) break;
+      available.delete(rookieId);
+      const p = db.prepare('SELECT name, age, position, overall FROM players WHERE id = ?').get(rookieId);
+      ins.run(session, team, confOf[team], rookieId, 'bench', null);
+      if (p) { ages[p.name] = p.age; contracts[p.name] = 4; } // rookie deal
+      picks.push({ team, player: p.name, position: p.position, overall: p.overall });
+    }
+  }
+  setPlayerAges(ages);
+  setPlayerContracts(contracts);
+  setState('draft_picks', JSON.stringify(picks));
+}
+
+function clearDraftState() {
+  setState('draft_class', '[]');
+  setState('draft_order', '[]');
+  setState('draft_needs', '{}');
+  setState('draft_picks', '[]');
+  setState('draft_pending_after', '[]');
+}
+
+// The user's 1-based draft position this year (based on last season's standings).
+function draftUserPosition() {
+  const order = getState('draft_order') ? JSON.parse(getState('draft_order')) : [];
+  const idx = order.indexOf(getState('team_name') || 'My Team');
+  return idx >= 0 ? idx + 1 : null;
 }
 
 function validateSeasonTeam(userTeam) {
@@ -526,7 +897,8 @@ app.post('/api/season', (req, res) => {
   const err = validateSeasonTeam(userTeam);
   if (err) return res.status(400).json({ error: err });
   const config = getConfig();
-  const result = sim.simulateSeason(db, userTeam, config);
+  const league = resolveLeague(userTeam, config);
+  const result = sim.simulateSeasonWithLeague(league.teams, league.leagueAvg, league.aiBonus);
   const me = [...result.east, ...result.west].find((t) => t.isUser);
   finishSeason(res, config, result, formatUserAverages(me.playerAverages, userTeam));
 });
@@ -538,7 +910,7 @@ app.post('/api/season/start', (req, res) => {
   if (err) return res.status(400).json({ error: err });
   const config = getConfig();
 
-  const { teams, leagueAvg, aiBonus } = sim.buildLeague(db, userTeam, config);
+  const { teams, leagueAvg, aiBonus } = resolveLeague(userTeam, config);
   const schedule = sim.buildSchedule(teams);
   const standings = sim.simulateGames(teams, schedule.first, aiBonus);
 
@@ -789,6 +1161,17 @@ app.post('/api/trade', (req, res) => {
   const myVal = tradeValue(myPlayers), aiVal = tradeValue(aiPlayers);
   const excess = aiVal - myVal;
 
+  // Dynasty salary cap: a trade can't increase your total payroll, closing the
+  // "trade up to hoard stars" loophole (the AI value check above already limits the
+  // overall swing; this blocks the same upgrade through payroll).
+  if (getState('difficulty') === 'hard') {
+    const inSal = aiPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall), 0);
+    const outSal = myPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall), 0);
+    if (inSal > outSal) {
+      return res.json({ accepted: false, message: `Rejected: salary cap — you'd take on $${inSal}M and shed $${outSal}M. A trade can't increase your payroll.` });
+    }
+  }
+
   // AI evaluation: within the margin it is still not guaranteed — the more the trade
   // favours the player, the less likely the AI is to accept. force=true (accepting a
   // generated offer/proposal) skips evaluation since the AI already agreed.
@@ -983,7 +1366,8 @@ function seriesMVP(stats) {
 }
 
 function addTrophy(type, playerName, teamName) {
-  db.prepare('INSERT INTO trophies (session_id, type, player_name, team_name) VALUES (?, ?, ?, ?)').run(currentSession(), type, playerName, teamName);
+  const seasonNumber = parseInt(getState('season_number') || '1', 10);
+  db.prepare('INSERT INTO trophies (session_id, type, player_name, team_name, season_number) VALUES (?, ?, ?, ?, ?)').run(currentSession(), type, playerName, teamName, seasonNumber);
 }
 
 app.post('/api/playoffs/start', (req, res) => {
@@ -1126,6 +1510,7 @@ app.get('/api/resume', (req, res) => {
     mode: getState('mode') === 'blind' ? 'blind' : 'open',
     gameMode: getState('game_mode') === 'dynasty' ? 'dynasty' : 'normal',
     seasonNumber: parseInt(getState('season_number') || '1', 10),
+    seasonLabel: sim.seasonLabel(parseInt(getState('season_number') || '1', 10)),
     rosterCount,
     rosterSize: sim.ROSTER_SIZE,
   };
@@ -1155,6 +1540,9 @@ app.get('/api/result', (req, res) => {
   const gameMode = getState('game_mode') === 'dynasty' ? 'dynasty' : 'normal';
   const seasonNumber = parseInt(getState('season_number') || '1', 10);
   const seasonHistory = getState('season_history') ? JSON.parse(getState('season_history')) : [];
+  const contracts = playerContracts();
+  const ages = playerAges();
+  const prevOveralls = getState('prev_overalls') ? JSON.parse(getState('prev_overalls')) : {};
   res.json({
     teamName: getState('team_name') || 'My Team',
     season: seasonRecord,
@@ -1162,10 +1550,17 @@ app.get('/api/result', (req, res) => {
     gameLog,
     playoff,
     awards: seasonResult ? seasonResult.awards : null,
-    roster: roster.map(p => ({ name: p.name, position: p.position, age: p.age, overall: p.overall, rating: +sim.powerRating(p).toFixed(1), role: p.role })),
+    roster: roster.map((p) => {
+      const base = db.prepare('SELECT overall, age FROM players WHERE id = ?').get(p.id);
+      const curAge = ages[p.name] != null ? ages[p.name] : (base ? base.age : p.age);
+      const pure = base ? sim.effectiveOverall(base.overall, base.age, curAge, p.name) : p.overall;
+      const delta = prevOveralls[p.name] != null ? pure - prevOveralls[p.name] : null;
+      return { name: p.name, position: p.position, age: p.age, overall: p.overall, rating: +sim.powerRating(p).toFixed(1), role: p.role, contract: contracts[p.name] ?? null, potential: sim.potentialGrade(p.name), delta };
+    }),
     gameMode,
     seasonNumber,
-    seasonHistory,
+    seasonLabel: sim.seasonLabel(seasonNumber),
+    seasonHistory: seasonHistory.map(h => ({ ...h, seasonLabel: h.seasonLabel || sim.seasonLabel(h.season) })),
     dynastyMax: gameMode === 'dynasty' ? DYNASTY_MAX_SEASONS : null,
   });
 });
