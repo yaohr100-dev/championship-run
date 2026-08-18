@@ -33,10 +33,10 @@ const USAGE_EXP = 0.5;         // how strongly real usage tendency bends the sha
 const USAGE_EXP_PO = 0.7;      // playoffs: stars carry even more usage
 const SEASON_GAMES = 82;
 const START_SEASON = 2025;     // the first season is 2025-26; dynasty seasons advance one year each
-const SCALE_RS = 14;           // regular season: flatter (bigger randomness)
-const SCALE_PO = 10;           // playoffs: steeper than the regular season (more decisive)
+const SCALE_RS = 11;           // regular season: moderate randomness (10-pt gap ≈ 72% win rate)
+const SCALE_PO = 8;            // playoffs: steeper than the regular season (more decisive)
 const HOME_ADV = 1.5;          // home-court strength boost (rating points) — ~57% home win rate
-const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // ≈1.07; kept as a ratio so the home rate stays ~57%
+const HOME_ADV_PO = HOME_ADV * (SCALE_PO / SCALE_RS); // kept as a ratio so the home rate stays ~57%
 const AI_TEAM_BAND = 8;        // talent spread around an AI team's target strength (rating units); larger = more role players mixed in
 const BENCH_MINUTES_RATIO = 0.75; // bench players play this fraction of their ability-driven minutes, so lineup choice affects team strength
 const TEAMS_PER_CONF = 15;
@@ -470,7 +470,7 @@ function buildLeague(db, userTeam, config) {
   const aiTeams = [];
   // League strength range (season-1 only — after that the AI league develops organically
   // via draft picks and free agency rather than a static ramp).
-  const minS = 70, maxS = 88; // cap slightly below the player's ceiling (~90) so a well-built team can still top the league
+  const minS = 74, maxS = 86; // narrower range so the league has parity (std dev ~10-12 wins)
   for (let i = 0; i < 29; i++) {
     const target = maxS - (maxS - minS) * (i / 28);
     const players = generateAITeam(db, usedIds, target);
