@@ -241,11 +241,6 @@ $('lib-card').addEventListener('click', () => {
   loadLibrary();
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
-$('matchup-card').addEventListener('click', () => {
-  const panel = $('matchup-panel-wrap');
-  panel.hidden = false;
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
 
 $('new-draft').addEventListener('click', async () => {
   const gameMode = document.querySelector('input[name=game-mode]:checked').value;
@@ -1388,8 +1383,11 @@ function renderMatchupResult(j) {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => loadLibrary(), 250);
   });
-  $('matchup-details').addEventListener('toggle', () => {
-    if ($('matchup-details').open && !matchupPlayers.length) initMatchup();
+  $('matchup-card').addEventListener('click', () => {
+    const panel = $('matchup-panel-wrap');
+    panel.hidden = false;
+    if (!matchupPlayers.length) initMatchup();
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   // Load initial data (best-effort — a single failure shouldn't break the whole app).
