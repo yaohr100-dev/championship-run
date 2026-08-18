@@ -1390,6 +1390,9 @@ function renderMatchupResult(j) {
     panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
+  // Apply saved language preference
+  applyI18n();
+
   // Load initial data (best-effort — a single failure shouldn't break the whole app).
   try { await loadNbaTeams(); } catch (e) { console.error('loadNbaTeams', e); }
   try { await loadLibrary(); } catch (e) { console.error('loadLibrary', e); }
