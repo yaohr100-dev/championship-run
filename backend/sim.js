@@ -150,7 +150,7 @@ function powerRating(p) {
 // fringe player ~7 ppg, a 98-ovr superstar ~30 ppg. This is the ability anchor for
 // the scoring-share model.
 function expectedPts(overall) {
-  return 3 + 0.025 * Math.pow(Math.max(1, overall - 55), 1.85);
+  return 0.04 * Math.pow(Math.max(1, overall - 55), 1.95);
 }
 
 // Hard-mode salary: superstars cost disproportionately more, so under the cap you
