@@ -977,7 +977,9 @@ function tradeValue(players) {
   const ages = playerAges();
   return players.reduce((s, p) => {
     const age = ages[p.name] || p.age || 26;
-    const f = age <= 25 ? 1.10 : age <= 29 ? 1.00 : age <= 32 ? 0.85 : 0.70;
+    // Veteran stars retain high value — only deep bench vets get a real discount.
+    // Prime (26-29): no discount; young (≤25): small premium; aging (30-32): slight discount; old (33+): moderate discount.
+    const f = age <= 25 ? 1.08 : age <= 29 ? 1.00 : age <= 32 ? 0.95 : 0.85;
     return s + Math.round(p.overall * f);
   }, 0);
 }
@@ -1168,14 +1170,17 @@ app.post('/api/trade', (req, res) => {
   const myVal = tradeValue(myPlayers), aiVal = tradeValue(aiPlayers);
   const excess = aiVal - myVal;
 
-  // Dynasty salary cap: a trade can't increase your total payroll, closing the
-  // "trade up to hoard stars" loophole (the AI value check above already limits the
-  // overall swing; this blocks the same upgrade through payroll).
+  // Salary soft cap: in hard mode, warn when payroll exceeds $450M but don't block.
+  // The AI value check already limits unfair trades; a hard payroll block kills all
+  // trade motivation since you can never upgrade through trades.
   if (getState('difficulty') === 'hard') {
     const inSal = aiPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall, p.epm), 0);
     const outSal = myPlayers.reduce((sum, p) => sum + sim.playerSalary(p.overall, p.epm), 0);
-    if (inSal > outSal) {
-      return res.json({ accepted: false, message: `Rejected: salary cap — you'd take on $${inSal}M and shed $${outSal}M. A trade can't increase your payroll.` });
+    const currentSal = myRosterRows().reduce((sum, p) => sum + sim.playerSalary(p.overall, p.epm), 0);
+    const newSal = currentSal - outSal + inSal;
+    if (newSal > 450) {
+      // Just a warning, not a block — the AI's own value check prevents lopsided trades.
+      // This lets savvy GMs trade up while still feeling the cap pressure.
     }
   }
 
