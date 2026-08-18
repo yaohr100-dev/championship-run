@@ -1392,6 +1392,7 @@ function renderMatchupResult(j) {
 
   // Apply saved language preference
   applyI18n();
+  document.getElementById('lang-btn').addEventListener('click', switchLang);
 
   // Load initial data (best-effort — a single failure shouldn't break the whole app).
   try { await loadNbaTeams(); } catch (e) { console.error('loadNbaTeams', e); }
