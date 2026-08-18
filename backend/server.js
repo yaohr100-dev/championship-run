@@ -974,11 +974,12 @@ const MAX_TRADE_POINTS = 3;    // trade points per season: 1-for-1 = 1, 2-for-2 
 function tradePoints() { return parseInt(getState('trade_points') || '0', 10); }
 
 function tradeValue(players) {
+  // Normal mode: pure overall value (no age discount — it's just one season).
+  // Dynasty mode: age-adjusted so veteran stars retain value but aren't free.
+  if (getState('game_mode') !== 'dynasty') return players.reduce((s, p) => s + p.overall, 0);
   const ages = playerAges();
   return players.reduce((s, p) => {
     const age = ages[p.name] || p.age || 26;
-    // Veteran stars retain high value — only deep bench vets get a real discount.
-    // Prime (26-29): no discount; young (≤25): small premium; aging (30-32): slight discount; old (33+): moderate discount.
     const f = age <= 25 ? 1.08 : age <= 29 ? 1.00 : age <= 32 ? 0.95 : 0.85;
     return s + Math.round(p.overall * f);
   }, 0);
