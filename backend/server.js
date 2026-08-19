@@ -785,10 +785,13 @@ function applyDynasty(players) {
     if (ages[p.name] != null) {
       const baseAge = p.age;
       const baseOverall = p.overall;
+      const baseEpm = p.epm; // database value = base EPM, never mutated in DB
       p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
-      // EPM mean reversion toward league median, rate depends on current age
+      // EPM: before peak (curAge < 26), grow toward base EPM (player's potential);
+      // after peak, regress toward league median (experience fades).
       const rate = sim.epmAgeFactor(curAge);
-      const epmDelta = Math.round((sim.EPM_MEDIAN - p.epm) * rate * 10) / 10;
+      const target = curAge < 26 ? baseEpm : sim.EPM_MEDIAN;
+      const epmDelta = Math.round((target - p.epm) * rate * 10) / 10;
       if (epmDelta !== 0) {
         p.epm = +(p.epm + epmDelta).toFixed(1);
         p.oepm = +(p.oepm + epmDelta * 0.55).toFixed(1);
