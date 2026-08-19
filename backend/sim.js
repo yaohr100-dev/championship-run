@@ -127,9 +127,10 @@ function retireAge(overall) {
 // A player's effective overall from their base rating + the age curve.
 //   GROWTH (rawDelta > 0): scaled by qualityScale so elite players peak higher.
 //     qualityScale: 60 OVR → 0.50, 70 → 0.70, 80 → 0.90, 87 → 1.04, 95 → 1.20
-//   DECLINE (rawDelta ≤ 0): uses ageDelta directly, NO quality scaling.
-//     Everyone declines at the same absolute rate — more realistic. A 99-peak
-//     player and a 74-peak player both lose ~14 points by age 37.
+//   DECLINE (rawDelta ≤ 0): scaled by declineScale so elite players decline slower.
+//     A 95-base player (LeBron archetype) loses only ~55% of the raw decline — their
+//     skill/IQ/conditioning compensates for physical aging. Role players decline fully.
+//     declineScale: 60 → 1.00, 70 → 0.88, 80 → 0.72, 87 → 0.60, 95 → 0.50
 function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
   const rawDelta = ageDelta(currentAge) - ageDelta(baseAge);
   if (rawDelta > 0) {
@@ -137,7 +138,9 @@ function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
     const f = devoFactor || 1;
     return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta * qualityScale * f)));
   }
-  return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta)));
+  // decline: higher-base players decline slower
+  const declineScale = Math.max(0.4, 1.0 - (baseOverall - 60) * 0.011);
+  return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta * declineScale)));
 }
 
 function openDb() {
