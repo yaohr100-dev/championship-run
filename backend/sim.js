@@ -101,8 +101,8 @@ function ageDelta(age) {
 // OVR. This ensures EPM always reflects actual ability: OVR 95 → EPM ~6, OVR 87 → ~2,
 // OVR 80 → ~-1.5. Clamped to [-4, 8] so fringe players don't get absurd negatives.
 // Individual variation comes from each player's base EPM offset stored in the DB.
-const EPM_SLOPE = 0.50;
-const EPM_INTERCEPT = 83;  // OVR at which EPM ≈ 0
+const EPM_SLOPE = 0.33;
+const EPM_INTERCEPT = 80;  // OVR at which EPM ≈ 0
 const EPM_MIN = -3;
 const EPM_MAX = 8;
 

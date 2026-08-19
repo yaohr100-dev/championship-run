@@ -789,7 +789,7 @@ function applyDynasty(players) {
       p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
       // EPM derived from current effective OVR, blended with individual base EPM
       p.epm = sim.derivedEpm(p.overall, baseEpm);
-      const epmFromOvr = (p.overall - 83) * 0.50;
+      const epmFromOvr = (p.overall - 80) * 0.33;
       const blended = epmFromOvr * 0.85 + baseEpm * 0.15;
       p.oepm = +Math.max(-3, Math.min(5, blended * 0.55)).toFixed(1);
       p.depm = +Math.max(-3, Math.min(4, blended * 0.45)).toFixed(1);
