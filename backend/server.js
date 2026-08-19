@@ -600,6 +600,38 @@ app.post('/api/next-season', (req, res) => {
     setState('hall_of_fame', JSON.stringify(hof));
   }
 
+  // P7: Record career stats for all user players this season
+  const careerStats = getState('career_stats') ? JSON.parse(getState('career_stats')) : {};
+  const myAverages = getState('season_averages') ? JSON.parse(getState('season_averages')) : [];
+  for (const p of myAverages) {
+    if (!careerStats[p.name]) careerStats[p.name] = { seasons: [], totalPts: 0, totalGames: 0 };
+    careerStats[p.name].seasons.push({ season: seasonNumber, pts: p.pts, trb: p.trb, ast: p.ast });
+    careerStats[p.name].totalPts += p.pts * 82;
+    careerStats[p.name].totalGames += 82;
+  }
+  setState('career_stats', JSON.stringify(careerStats));
+
+  // P8: Generate league news from this season
+  const news = [];
+  if (playoff && playoff.champion) news.push(`🏆 ${playoff.champion} 赢得了${sim.seasonLabel(seasonNumber)}总冠军！`);
+  if (seasonResult && seasonResult.awards && seasonResult.awards.mvp) {
+    const mvp = seasonResult.awards.mvp;
+    news.push(`🌟 ${mvp.player} (${mvp.team}) 当选常规赛MVP`);
+  }
+  if (retiredLegends.length) {
+    const names = retiredLegends.slice(0, 3).map(l => l.name).join('、');
+    news.push(`👋 传奇谢幕: ${names} 等球星宣布退役`);
+  }
+  if (record) {
+    if (record.wins >= 60) news.push(`🔥 ${userTeamName} 以 ${record.wins}胜 打出统治级赛季！`);
+    else if (record.wins <= 25) news.push(`😤 ${userTeamName} 仅 ${record.wins}胜，重建之路漫长...`);
+  }
+  if (myAverages.length) {
+    const top = myAverages.sort((a, b) => b.pts - a.pts)[0];
+    if (top.pts >= 25) news.push(`⚡ ${top.name} 场均${top.pts.toFixed(1)}分，扛起球队进攻大旗`);
+  }
+  setState('league_news', JSON.stringify(news));
+
   // decrement contracts league-wide. Expired deals roll for re-sign willingness:
   // factors include team record, player morale, age, and overall. If the player
   // refuses, they leave the roster (user) or league_teams (AI) and become a free agent.
