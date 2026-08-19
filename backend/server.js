@@ -519,14 +519,46 @@ app.post('/api/next-season', (req, res) => {
     });
   }
 
-  // full draft order (worst record first, user included) from this season's standings
+  // full draft order: lottery for non-playoff teams (weighted by record), then
+  // playoff teams in reverse order. Worst non-playoff team gets best odds.
   const standings = getState('season_standings') ? JSON.parse(getState('season_standings')) : null;
   const userTeamName = getState('team_name') || 'My Team';
   let fullOrder = [];
   if (standings) {
-    fullOrder = [...standings.east, ...standings.west]
-      .sort((a, b) => a.wins - b.wins)
-      .map((t) => t.name);
+    const allTeams = [...standings.east, ...standings.west].sort((a, b) => a.wins - b.wins);
+    const nonPlayoff = allTeams.slice(0, 14); // bottom 14 teams
+    const playoff = allTeams.slice(14);        // top 16 teams
+    // lottery: each non-playoff team gets balls proportional to (max_wins - wins + 1)
+    // worst team gets most balls, but no guaranteed top pick
+    const maxWins = Math.max(...nonPlayoff.map(t => t.wins));
+    const lotteryPool = [];
+    for (const t of nonPlayoff) {
+      const balls = maxWins - t.wins + 1; // worst team: most balls
+      for (let i = 0; i < balls; i++) lotteryPool.push(t);
+    }
+    // draw lottery order (remove duplicates as they're drawn)
+    const drawn = new Set();
+    const lotteryOrder = [];
+    while (lotteryOrder.length < nonPlayoff.length && lotteryPool.length > 0) {
+      const idx = Math.floor(Math.random() * lotteryPool.length);
+      const t = lotteryPool[idx];
+      if (!drawn.has(t.name)) {
+        drawn.add(t.name);
+        lotteryOrder.push(t);
+      }
+      lotteryPool.splice(idx, 1);
+    }
+    // remaining non-playoff teams not drawn (shouldn't happen but safety)
+    for (const t of nonPlayoff) {
+      if (!drawn.has(t.name)) lotteryOrder.push(t);
+    }
+    // playoff teams in reverse order (best record picks last)
+    const playoffOrder = playoff.reverse();
+    fullOrder = [...lotteryOrder, ...playoffOrder].map(t => t.name);
+    // store lottery results for UI
+    setState('draft_lottery', JSON.stringify(lotteryOrder.map((t, i) => ({
+      pick: i + 1, team: t.name, wins: t.wins, isUser: t.name === userTeamName,
+    }))));
   } else {
     fullOrder = [userTeamName, ...sim.shuffle(sim.NBA_TEAMS.map((t) => t.name)).slice(0, 29)];
   }
