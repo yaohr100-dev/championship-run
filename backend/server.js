@@ -588,26 +588,51 @@ app.post('/api/next-season', (req, res) => {
     }
   }
 
-  // Re-sign willingness: multiplicative model so factors don't stack to extremes.
+  // Re-sign willingness: multiplicative model applied to ALL players (user + AI).
   //   base: 12% for everyone
   //   quality multiplier: stars (OVR≥85) have 1.5x leverage, superstars (≥90) 2.0x
   //   morale multiplier: unhappy (≤-2) → 1.8x, slightly unhappy (<0) → 1.3x
   //   team multiplier: bad teams (winPct<35%) → 1.4x
   //   age dampener: veterans (≥33) → 0.5x (prefer stability)
   //   clamp: 3% - 45%
+  // NOTE: morale and winPct are per-player (from their own team), not global.
   const refused = [];
+
+  // Build per-team win% from standings for AI teams
+  const teamWinPct = {};
+  if (standings) {
+    for (const t of [...(standings.east || []), ...(standings.west || [])]) {
+      const total = (t.wins || 0) + (t.losses || 0);
+      teamWinPct[t.name] = total > 0 ? t.wins / total : 0.5;
+    }
+  }
+  // User's own win%
+  const userWinPct = record ? record.wins / (record.wins + record.losses) : 0.5;
+
+  // Find which team each player belongs to (for AI players)
+  const playerTeam = {};
+  const ltAll = db.prepare('SELECT p.name, lt.team_name FROM league_teams lt JOIN players p ON p.id = lt.player_id WHERE lt.session_id = ?').all(session);
+  for (const r of ltAll) playerTeam[r.name] = r.team_name;
+  // User's players belong to userTeamName
+  const userRosterNames = db.prepare('SELECT p.name FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
+  for (const r of userRosterNames) playerTeam[r.name] = userTeamName;
+
   for (const p of expiring) {
+    const isUser = playerTeam[p.name] === userTeamName;
+    // Each player's team record matters, not the global user record
+    const myWinPct = isUser ? userWinPct : (teamWinPct[playerTeam[p.name]] || 0.5);
+
     let prob = 0.12;
     if (p.overall >= 90) prob *= 2.0;
     else if (p.overall >= 85) prob *= 1.5;
     else if (p.overall >= 78) prob *= 1.2;
     if (p.morale <= -2) prob *= 1.8;
     else if (p.morale < 0) prob *= 1.3;
-    if (winPct < 0.35) prob *= 1.4;
+    if (myWinPct < 0.35) prob *= 1.4;
     if (p.age >= 33) prob *= 0.5;
     prob = Math.max(0.03, Math.min(0.45, prob));
     if (Math.random() < prob) {
-      refused.push(p);
+      refused.push({ ...p, team: playerTeam[p.name] || '?' });
       delete contracts[p.name];
     }
   }
@@ -633,16 +658,32 @@ app.post('/api/next-season', (req, res) => {
 
   setPlayerContracts(contracts);
 
-  // settle season morale for the user's surviving players: winning lifts it, losing
+  // settle season morale for ALL players (user + AI): winning lifts it, losing
   // drags it, and bench players grow dissatisfied with a smaller role.
-  const winPct = record ? record.wins / (record.wins + record.losses) : 0.5;
+  // User players: morale based on user's own record
   const moraleRows = db.prepare('SELECT p.name, r.role FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
   for (const row of moraleRows) {
     let m = morale[row.name] || 0;
-    if (winPct > 0.6) m += 2;
-    else if (winPct < 0.4) m -= 2;
+    if (userWinPct > 0.6) m += 2;
+    else if (userWinPct < 0.4) m -= 2;
     if (row.role === 'bench') m -= 1;
     morale[row.name] = Math.max(-5, Math.min(5, m));
+  }
+  // AI players: morale based on their own team's record
+  if (standings) {
+    const allTeams = [...(standings.east || []), ...(standings.west || [])];
+    for (const t of allTeams) {
+      const total = (t.wins || 0) + (t.losses || 0);
+      const wp = total > 0 ? t.wins / total : 0.5;
+      const aiPlayers = db.prepare('SELECT p.name, lt.role FROM league_teams lt JOIN players p ON p.id = lt.player_id WHERE lt.team_name = ? AND lt.session_id = ?').all(t.name, session);
+      for (const row of aiPlayers) {
+        let m = morale[row.name] || 0;
+        if (wp > 0.6) m += 2;
+        else if (wp < 0.4) m -= 2;
+        if (row.role === 'bench') m -= 1;
+        morale[row.name] = Math.max(-5, Math.min(5, m));
+      }
+    }
   }
   setPlayerMorale(morale);
 
