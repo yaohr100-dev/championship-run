@@ -142,10 +142,11 @@ app.post('/api/matchup', (req, res) => {
 
 // ---- draft ----
 app.get('/api/draft', (req, res) => {
-  // annual rookie draft (retirements opened slots) draws from this year's draft class
   const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
-  const offseason = offseasonPicks > 0;
-  let candidates = offseason ? draftBoard() : sim.draftCandidates(db);
+  // Annual rookie draft: always 1 pick per team, board is the full draft class
+  const isRookieDraft = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
+  const offseason = isRookieDraft;
+  let candidates = isRookieDraft ? draftBoard() : sim.draftCandidates(db);
   const hard = getState('difficulty') === 'hard';
   const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const spent = hard
@@ -153,10 +154,8 @@ app.get('/api/draft', (req, res) => {
         .reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0)
     : 0;
 
-  // hard mode: guarantee at least one candidate fits the budget (reserving the pool's
-  // minimum salary for every remaining pick), so you can always finish the draft.
-  // (initial draft only — the annual rookie draft replaces retirees, no budget needed.)
-  if (hard && !offseason) {
+  // hard mode: guarantee at least one candidate fits the budget (initial draft only)
+  if (hard && !isRookieDraft) {
     const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m, 0);
     const remaining = sim.HARD_MODE_BUDGET - spent;
     const usable = remaining - (sim.ROSTER_SIZE - rosterCount - 1) * minSalary;
@@ -177,10 +176,11 @@ app.get('/api/draft', (req, res) => {
     budget: hard ? sim.HARD_MODE_BUDGET : null,
     spent: hard ? spent : null,
     offseason,
-    offseasonPicks,
-    draftBoard: offseason ? candidates.map(playerBrief) : null,
-    userPosition: offseason ? draftUserPosition() : null,
-    picks: offseason ? (getState('draft_picks') ? JSON.parse(getState('draft_picks')) : []) : [],
+    offseasonPicks: isRookieDraft ? 1 : offseasonPicks,
+    draftBoard: isRookieDraft ? candidates.map(playerBrief) : null,
+    userPosition: isRookieDraft ? draftUserPosition() : null,
+    picks: isRookieDraft ? (getState('draft_picks') ? JSON.parse(getState('draft_picks')) : []) : [],
+    canPass: getState('draft_can_pass') === '1',
   });
 });
 app.post('/api/draft/reroll', (req, res) => {
@@ -194,14 +194,28 @@ app.post('/api/draft/reroll', (req, res) => {
 app.post('/api/roster', (req, res) => {
   const { playerId } = req.body || {};
   if (!playerId) return res.status(400).json({ error: 'playerId required' });
-  const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
-  if (count >= sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster already full' });
+  let count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+  const isRookieDraft = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
+
+  // Rookie draft: roster may be full (10/10), in that case auto-cut the worst player
+  if (count >= sim.ROSTER_SIZE) {
+    if (!isRookieDraft) return res.status(400).json({ error: 'Roster already full' });
+    const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
+    const benchPlayers = roster.filter(p => p.role === 'bench').sort((a, b) => a.overall - b.overall);
+    const cut = benchPlayers[0];
+    if (cut) {
+      db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(cut.id, currentSession());
+      const contracts = playerContracts();
+      delete contracts[cut.name];
+      setPlayerContracts(contracts);
+    }
+    count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+  }
   if (db.prepare('SELECT 1 FROM roster WHERE player_id = ? AND session_id = ?').get(playerId, currentSession()))
     return res.status(400).json({ error: 'Player already drafted' });
 
-  // hard mode: enforce the salary cap (reserving the pool's minimum salary for
-  // every remaining pick, so you can always finish the draft)
-  if (getState('difficulty') === 'hard') {
+  // hard mode: enforce the salary cap (initial draft only — rookie draft has its own budget logic)
+  if (getState('difficulty') === 'hard' && !isRookieDraft) {
     const p = db.prepare('SELECT overall, epm FROM players WHERE id = ?').get(playerId);
     const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
       .reduce((s, x) => s + sim.playerSalary(x.overall, x.epm), 0);
@@ -229,29 +243,34 @@ app.post('/api/roster', (req, res) => {
     setPlayerContracts(contracts);
     setPlayerDevo(devo);
   }
-  // annual rookie draft: record the pick, decrement remaining picks; when done, the
-  // AI teams behind the user in the order auto-draft.
-  const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
-  if (offseasonPicks > 0) {
+  // rookie draft: record the pick, then AI teams behind the user auto-draft
+  const isDrafting = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
+  if (isDrafting) {
     const p = db.prepare('SELECT name, position, overall FROM players WHERE id = ?').get(playerId);
     const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
     picks.push({ team: getState('team_name') || 'My Team', player: p.name, position: p.position, overall: p.overall });
     setState('draft_picks', JSON.stringify(picks));
-
-    const remaining = offseasonPicks - 1;
-    if (remaining <= 0) {
-      setState('offseason_picks', '0');
-      const afterUser = getState('draft_pending_after') ? JSON.parse(getState('draft_pending_after')) : [];
-      runAIDraft(afterUser);
-      clearDraftState();
-      setState('phase', 'freeagency');
-    } else {
-      setState('offseason_picks', String(remaining));
-    }
-  } else if (count + 1 >= sim.ROSTER_SIZE) {
-    setState('phase', 'lineup');
+    // done: AI teams behind the user pick, then clear draft state
+    const afterUser = getState('draft_pending_after') ? JSON.parse(getState('draft_pending_after')) : [];
+    runAIDraft(afterUser);
+    clearDraftState();
+    setState('phase', 'freeagency');
   }
   res.json({ ok: true, rosterCount: count + 1 });
+});
+
+// Pass on the annual rookie draft: skip your pick, remaining AI teams auto-draft.
+app.post('/api/draft/pass', (req, res) => {
+  const isDrafting = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
+  if (!isDrafting) return res.status(400).json({ error: 'No active draft to pass' });
+  const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
+  picks.push({ team: getState('team_name') || 'My Team', player: '(passed)', position: '', overall: 0 });
+  setState('draft_picks', JSON.stringify(picks));
+  const afterUser = getState('draft_pending_after') ? JSON.parse(getState('draft_pending_after')) : [];
+  runAIDraft(afterUser);
+  clearDraftState();
+  setState('phase', 'freeagency');
+  res.json({ ok: true });
 });
 
 // ---- roster / lineup ----
@@ -584,27 +603,19 @@ app.post('/api/next-season', (req, res) => {
   setState('season_number', String(seasonNumber + 1));
   setState('rerolls', String(sim.REROLLS_PER_RUN));
 
-  // generate this year's rookie class and set up the annual draft
-  if (totalRetirees > 0) {
-    const rookies = sim.generateDraftClass(db, totalRetirees + 5);
-    setState('draft_class', JSON.stringify(rookies.map((r) => r.id)));
-    setState('draft_order', JSON.stringify(fullOrder));
-    setState('draft_needs', JSON.stringify({ ...aiNeeds, [userTeamName]: userRetirePositions }));
-    setState('draft_picks', '[]');
-  }
+  // generate exactly 30 rookies every year, always run the draft
+  const rookies = sim.generateDraftClass(db, 30);
+  setState('draft_class', JSON.stringify(rookies.map((r) => r.id)));
+  setState('draft_order', JSON.stringify(fullOrder));
+  setState('draft_needs', JSON.stringify({ ...aiNeeds, [userTeamName]: userRetirePositions }));
+  setState('draft_picks', '[]');
 
-  // user picks at their own slot (worst record first): AI teams ahead of the user pick
-  // first, then the user, then the rest.
-  if (retirements.length > 0) {
-    runAIDraft(fullOrder.slice(0, userIndex));
-    setState('draft_pending_after', JSON.stringify(fullOrder.slice(userIndex + 1)));
-    setState('offseason_picks', String(retirements.length));
-    setState('phase', 'draft');
-  } else {
-    runAIDraft(fullOrder.filter((n) => n !== userTeamName));
-    clearDraftState();
-    setState('phase', 'freeagency');
-  }
+  // AI teams ahead of the user pick first; user picks 1 at their slot (or passes);
+  // remaining AI teams pick after. User can cut a player if roster is full.
+  runAIDraft(fullOrder.slice(0, userIndex));
+  setState('draft_pending_after', JSON.stringify(fullOrder.slice(userIndex + 1)));
+  setState('phase', 'draft');
+  setState('draft_can_pass', '1');
 
   res.json({
     ok: true,

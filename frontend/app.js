@@ -387,7 +387,16 @@ async function loadDraft() {
   if (j.offseason) {
     $('draft-title').firstChild.textContent = t('draft.rookieTitle') + ' ';
     const pos = j.userPosition ? `${t('draft.yourPick')} #${j.userPosition} · ` : '';
-    $('draft-desc').textContent = `${pos}${t('draft.desc')}`;
+    const canPass = j.canPass ? ` · <button id="draft-pass" class="ghost" style="font-size:12px;padding:4px 10px">${t('draft.pass')}</button>` : '';
+    $('draft-desc').innerHTML = `${pos}${t('draft.desc')}${canPass}`;
+    if (j.canPass) {
+      $('draft-pass')?.addEventListener('click', async () => {
+        await api('/api/draft/pass', { method: 'POST' });
+        state.offseasonFlow = false;
+        show('freeagency');
+        await loadFreeAgency();
+      });
+    }
     renderDraftPicks(j.picks);
   } else {
     $('draft-title').firstChild.textContent = t('draft.title') + ' ';
@@ -398,9 +407,10 @@ async function loadDraft() {
   state.budget = j.budget;
   state.spent = j.spent;
   await renderDraftRoster();
-  if (j.rosterCount >= j.rosterSize) {
-    if (state.offseasonFlow) { state.offseasonFlow = false; show('freeagency'); await loadFreeAgency(); }
-    else { show('lineup'); await loadLineup(); }
+  // rookie draft: roster may be full (auto-cut handles it), don't skip to lineup
+  if (j.rosterCount >= j.rosterSize && !j.offseason) {
+    show('lineup');
+    await loadLineup();
     return;
   }
   renderCandidates(j.candidates);
@@ -1151,7 +1161,7 @@ function showResult() {
         const j = await api('/api/next-season', { method: 'POST' });
         state.midSeason = null;
         state.offseasonFlow = true;
-        state.pendingOffseasonPicks = j.offseasonPicks;
+        state.pendingOffseasonPicks = 1; // always 1 pick in annual draft
         renderRecap(j.seasonRecap);
         show('recap');
       } catch (e) { toast(e.message, 'error'); }

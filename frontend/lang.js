@@ -61,6 +61,7 @@ const LANG = {
     'draft.bigBoard': 'Draft Board',
     'draft.yourPick': 'You pick at',
     'draft.picksSoFar': 'Draft so far',
+    'draft.pass': 'Pass (skip pick)',
 
     // ---- Free Agency ----
     'fa.title': 'Offseason Free Agency',
@@ -301,6 +302,7 @@ const LANG = {
     'draft.bigBoard': '选秀大会',
     'draft.yourPick': '你的选秀顺位',
     'draft.picksSoFar': '选秀进行中',
+    'draft.pass': '弃权(跳过选秀)',
     'fa.title': '休赛期自由市场',
     'fa.desc': '释放球员腾出名额,然后签约自由球员。或者直接前往阵容设置。',
     'fa.done': '完成 — 前往阵容设置',
