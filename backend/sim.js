@@ -125,14 +125,27 @@ function retireAge(overall) {
 }
 
 // A player's effective overall = their base 2K overall + (age curve at current age) -
-// (age curve at base age). A 21-yo star gets better each year; a 30+ vet declines.
-// The growth portion (current > base) is scaled by a mild random factor (0.90–1.10)
-// stored per-player in `player_devo`, so each dynasty run feels different but no
-// player is a guaranteed bust or boom.
+// (age curve at base age). Growth is scaled by the player's base quality: elite players
+// (87 OVR at 19) grow more in absolute terms than role players (70 OVR at 19), because
+// they have more "ceiling" before the theoretical max (99).
+//   qualityScale: 60 OVR → 0.65x, 70 → 0.9x, 80 → 1.15x, 87 → 1.33x, 95 → 1.53x
+//   EPM grows proportionally to OVR growth (at ~15% of the OVR delta).
 function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
-  const growth = ageDelta(currentAge) - ageDelta(baseAge);
-  const f = growth > 0 ? (devoFactor || 1) : 1;
-  return Math.max(40, Math.round(baseOverall + growth * f));
+  const rawGrowth = ageDelta(currentAge) - ageDelta(baseAge);
+  if (rawGrowth <= 0) {
+    // decline: no quality scaling, just the curve × devo factor
+    return Math.max(40, Math.round(baseOverall + rawGrowth));
+  }
+  // growth: scale by player quality so elite players peak higher
+  const qualityScale = 0.4 + (baseOverall - 50) * 0.025;
+  const f = devoFactor || 1;
+  return Math.max(40, Math.round(baseOverall + rawGrowth * qualityScale * f));
+}
+
+// EPM growth during development: grows proportionally to OVR growth.
+// Returns the absolute EPM change for a given OVR growth delta.
+function epmGrowthFromOvr(ovrGrowth) {
+  return Math.round(ovrGrowth * 0.15 * 10) / 10; // EPM grows at ~15% of OVR growth rate
 }
 
 function openDb() {
@@ -924,5 +937,5 @@ module.exports = {
   generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall, epmAgeFactor, EPM_MEDIAN, START_SEASON, seasonLabel, retireAge,
+  ageDelta, effectiveOverall, epmAgeFactor, epmGrowthFromOvr, EPM_MEDIAN, START_SEASON, seasonLabel, retireAge,
 };
