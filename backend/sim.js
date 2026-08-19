@@ -341,9 +341,11 @@ const r2 = (x) => Math.round(x * 100) / 100;
 
 // Position-aware rookie stat estimates, mirrors seed.js estimateStats but nudges the
 // big-man / point-guard tendencies so a C rebounds and a PG assists.
-// EPM uses derivedEpm with baseEpm=0 (no individual history yet).
+// Each rookie gets random noise on every stat (+ random offense/defense split)
+// so two 80-OVR PGs look completely different — one is a scorer, one a playmaker.
 function rookieStats(overall, position) {
   const x = overall - 55;
+  const rand = () => 0.7 + Math.random() * 0.6; // 0.70 - 1.30 random multiplier
   const mod = {
     PG: { trb: -1.0, ast: 2.0, blk: -0.2 },
     SG: { trb: -0.5, ast: 0.5, blk: -0.1 },
@@ -351,17 +353,26 @@ function rookieStats(overall, position) {
     PF: { trb: 1.0, ast: -0.5, blk: 0.3 },
     C:  { trb: 1.8, ast: -1.2, blk: 0.6 },
   }[position] || { trb: 0, ast: 0, blk: 0 };
-  const epm = derivedEpm(overall, 0); // baseEpm=0 for rookies
+
+  // random "play style": offensive-leaning vs defensive-leaning, scorer vs facilitator
+  const offBias = 0.3 + Math.random() * 0.4; // 0.30-0.70, higher = more offensive
+
+  // rookie baseEpm: derived from overall, then add noise so even same-OVR rookies
+  // have different EPM profiles (some are impact players, some are empty stats)
+  const noisyBaseEpm = derivedEpm(overall, 0) + (Math.random() - 0.5) * 1.5; // ±0.75 noise
+  const oepm = r2(noisyBaseEpm * (0.4 + offBias * 0.6));
+  const depm = r2(noisyBaseEpm - oepm);
+
   return {
-    pts: r2(0.7 * x),
-    trb: r2(Math.max(0.5, 0.22 * x + mod.trb)),
-    ast: r2(Math.max(0.3, 0.18 * x + mod.ast)),
-    stl: r2(Math.max(0.1, 0.035 * x)),
-    blk: r2(Math.max(0.05, 0.03 * x + mod.blk)),
-    fgPct: r2(0.40 + (overall - 60) * 0.0045),
-    threePct: r2(0.28 + (overall - 60) * 0.0035),
-    ftPct: r2(0.62 + (overall - 60) * 0.004),
-    epm, oepm: r2(epm * 0.55), depm: r2(epm * 0.45),
+    pts: r2(Math.max(0.5, 0.7 * x * rand())),
+    trb: r2(Math.max(0.3, (0.22 * x + mod.trb) * rand())),
+    ast: r2(Math.max(0.2, (0.18 * x + mod.ast) * rand())),
+    stl: r2(Math.max(0.1, 0.035 * x * rand())),
+    blk: r2(Math.max(0.05, (0.03 * x + mod.blk) * rand())),
+    fgPct: r2(0.40 + (overall - 60) * 0.0045 + (Math.random() - 0.5) * 0.04),
+    threePct: r2(0.28 + (overall - 60) * 0.0035 + (Math.random() - 0.5) * 0.06),
+    ftPct: r2(0.62 + (overall - 60) * 0.004 + (Math.random() - 0.5) * 0.08),
+    epm: r2(noisyBaseEpm), oepm, depm,
   };
 }
 
