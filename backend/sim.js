@@ -73,8 +73,8 @@ function moraleFactor(streak) {
 // Dynasty progression: how far a player's overall is from their peak at a given age.
 // Growth: rapid 20-23 (+2/yr), slowing 24-25 (+1/yr).
 // Prime: 26-28 (3-year peak window).
-// Decline: gentle 29-31 (-1/yr), moderate 32-34 (-2/yr), steep 35-36 (-3/yr), brutal 37+ (-4/yr).
-// This gives realistic career arcs: LeBron at 40 drops ~16 points from peak, not just 8.
+// Decline: gentle 29-31 (-1/yr), moderate 32-34 (-2/yr), steep 35-37 (-3/yr),
+// brutal 38+ (-2/yr continuing, no flat floor).
 function ageDelta(age) {
   if (age <= 20) return -6;
   if (age <= 21) return -5;
@@ -87,12 +87,13 @@ function ageDelta(age) {
   if (age <= 30) return -2;
   if (age <= 31) return -3;
   if (age <= 32) return -4;
-  if (age <= 33) return -5;
-  if (age <= 34) return -7;
-  if (age <= 35) return -9;
-  if (age <= 36) return -11;
+  if (age <= 33) return -6;
+  if (age <= 34) return -8;
+  if (age <= 35) return -10;
+  if (age <= 36) return -12;
   if (age <= 37) return -14;
-  return -17; // 38+: nearly washed
+  // 38+: continues declining -2/yr, no flat floor
+  return -14 - (age - 37) * 2;
 }
 
 // EPM age dampening: EPM regresses toward the league median as players age.
