@@ -699,6 +699,50 @@ app.post('/api/next-season', (req, res) => {
   setState('season_number', String(seasonNumber + 1));
   setState('rerolls', String(sim.REROLLS_PER_RUN));
 
+  // AI offseason trades: teams with positional surpluses trade with teams that have
+  // gaps. Up to 5 trades, balanced value only. This makes the AI league dynamic —
+  // teams actively improve, not just passively age.
+  const aiTradeLog = [];
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const ltRows2 = db.prepare('SELECT lt.team_name, lt.player_id, p.name, p.overall, p.position FROM league_teams lt JOIN players p ON p.id = lt.player_id WHERE lt.session_id = ?').all(session);
+    const byTeam2 = {};
+    for (const r of ltRows2) { if (!byTeam2[r.team_name]) byTeam2[r.team_name] = []; byTeam2[r.team_name].push(r); }
+    const teamNames = Object.keys(byTeam2);
+    if (teamNames.length < 2) break;
+    // pick two random teams
+    const tA = teamNames[Math.floor(Math.random() * teamNames.length)];
+    let tB = teamNames[Math.floor(Math.random() * teamNames.length)];
+    if (tA === tB) continue;
+    const rosterA = byTeam2[tA] || [];
+    const rosterB = byTeam2[tB] || [];
+    // find a position where A has surplus (3+) and B has weakness (1 or fewer)
+    for (const pos of sim.POSITIONS) {
+      const surplusA = rosterA.filter(p => p.position === pos);
+      const weakB = rosterB.filter(p => p.position === pos);
+      if (surplusA.length >= 3 && weakB.length <= 1) {
+        // B has something A needs?
+        for (const pos2 of sim.POSITIONS) {
+          if (pos2 === pos) continue;
+          const surplusB = rosterB.filter(p => p.position === pos2);
+          const weakA = rosterA.filter(p => p.position === pos2);
+          if (surplusB.length >= 3 && weakA.length <= 1) {
+            // swap: A gives worst of pos, B gives worst of pos2
+            const giveA = surplusA.sort((a,b) => a.overall - b.overall)[0];
+            const giveB = surplusB.sort((a,b) => a.overall - b.overall)[0];
+            if (Math.abs(giveA.overall - giveB.overall) <= 8) {
+              // execute swap in league_teams
+              db.prepare('UPDATE league_teams SET team_name = ? WHERE player_id = ? AND session_id = ?').run(tB, giveA.player_id, session);
+              db.prepare('UPDATE league_teams SET team_name = ? WHERE player_id = ? AND session_id = ?').run(tA, giveB.player_id, session);
+              aiTradeLog.push(`${tA} ⇄ ${tB}: ${giveA.name}(${giveA.position}) for ${giveB.name}(${giveB.position})`);
+              break;
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+
   // generate exactly 30 rookies every year, always run the draft
   const rookies = sim.generateDraftClass(db, 30);
   setState('draft_class', JSON.stringify(rookies.map((r) => r.id)));
@@ -727,6 +771,7 @@ app.post('/api/next-season', (req, res) => {
       mvp: seasonResult && seasonResult.awards && seasonResult.awards.mvp ? { player: seasonResult.awards.mvp.player, team: seasonResult.awards.mvp.team } : null,
       retiredLegends,
       refused: refused || [],
+      aiTrades: aiTradeLog || [],
     },
   });
 });
@@ -877,7 +922,7 @@ function setPlayerDevo(devo) {
   setState('player_devo', JSON.stringify(devo));
 }
 function seedDevo(devo, name) {
-  if (devo[name] == null) devo[name] = +(0.90 + Math.random() * 0.20).toFixed(2); // 0.90–1.10
+  if (devo[name] == null) devo[name] = +(0.70 + Math.random() * 0.60).toFixed(2); // 0.70–1.30 (wider range for more bust/boom variance)
 }
 
 // Overwrite overall + age on a team's roster rows with their dynasty-adjusted values,
