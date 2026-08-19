@@ -194,16 +194,16 @@ function renderTrophies(trophies) {
   const teamItem = (t) => `<div class="trophy-item">${t.team_name}${season(t)}</div>`;
   const playerItem = (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span>${season(t)}</div>`;
   box.innerHTML =
-    group('🏆 NBA 总冠军', trophies.filter((t) => t.type === 'championship'), teamItem) +
-    group('🏆 东部冠军', trophies.filter((t) => t.type === 'east_champion'), teamItem) +
-    group('🏆 西部冠军', trophies.filter((t) => t.type === 'west_champion'), teamItem) +
-    group('🏆 常规赛MVP', trophies.filter((t) => t.type === 'season_mvp'), playerItem) +
-    group('🛡️ 最佳防守球员', trophies.filter((t) => t.type === 'dpoy'), playerItem) +
-    group('🔥 最佳第六人', trophies.filter((t) => t.type === 'six_man'), playerItem) +
-    group('🌟 最佳阵容一阵', trophies.filter((t) => t.type === 'all_nba'), playerItem) +
-    group('🏅 总决赛MVP', trophies.filter((t) => t.type === 'finals_mvp'), playerItem) +
-    group('🏅 东部决赛MVP', trophies.filter((t) => t.type === 'east_mvp'), playerItem) +
-    group('🏅 西部决赛MVP', trophies.filter((t) => t.type === 'west_mvp'), playerItem);
+    group('🏆 ' + t('trophy.champion'), trophies.filter((t) => t.type === 'championship'), teamItem) +
+    group('🏆 ' + t('trophy.eastChamp'), trophies.filter((t) => t.type === 'east_champion'), teamItem) +
+    group('🏆 ' + t('trophy.westChamp'), trophies.filter((t) => t.type === 'west_champion'), teamItem) +
+    group('🏆 ' + t('trophy.mvp'), trophies.filter((t) => t.type === 'season_mvp'), playerItem) +
+    group('🛡️ ' + t('trophy.dpoy'), trophies.filter((t) => t.type === 'dpoy'), playerItem) +
+    group('🔥 ' + t('trophy.sixMan'), trophies.filter((t) => t.type === 'six_man'), playerItem) +
+    group('🌟 ' + t('trophy.allNba'), trophies.filter((t) => t.type === 'all_nba'), playerItem) +
+    group('🏅 ' + t('trophy.finalsMvp'), trophies.filter((t) => t.type === 'finals_mvp'), playerItem) +
+    group('🏅 ' + t('trophy.eastMvp'), trophies.filter((t) => t.type === 'east_mvp'), playerItem) +
+    group('🏅 ' + t('trophy.westMvp'), trophies.filter((t) => t.type === 'west_mvp'), playerItem);
 }
 
 async function loadHallOfFame() {
@@ -699,9 +699,18 @@ $('confirm-lineup').addEventListener('click', async () => {
 
 // ---------- Season ----------
 $('simulate-season').addEventListener('click', async () => {
-  $('season-result').innerHTML = `<p class="muted">${t('misc.loading')}</p>`;
-  const j = await api('/api/season/start', { method: 'POST' });
-  renderMidSeason(j);
+  if ($('simulate-season').disabled) return;
+  $('simulate-season').disabled = true;
+  $('simulate-season').textContent = '模拟中…';
+  $('season-result').innerHTML = `<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div>`;
+  try {
+    const j = await api('/api/season/start', { method: 'POST' });
+    renderMidSeason(j);
+  } catch (e) {
+    $('simulate-season').disabled = false;
+    $('simulate-season').textContent = t('season.simulate');
+    toast(e.message, 'error');
+  }
 });
 
 function awardsHtml(awards) {
@@ -958,7 +967,10 @@ function renderMidSeason(j) {
   $('adjust-mid')?.addEventListener('click', () => { show('lineup'); loadLineup(); });
   $('trade-mid')?.addEventListener('click', () => renderTradeUI());
   $('finish-season')?.addEventListener('click', async () => {
-    $('season-result').innerHTML = `<p class="muted">${t('misc.loading')}</p>`;
+    if ($('finish-season').disabled) return;
+    $('finish-season').disabled = true;
+    $('finish-season').textContent = '模拟中…';
+    $('season-result').innerHTML = `<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div>`;
     const j2 = await api('/api/season/finish', { method: 'POST' });
     state.midSeason = null;
     renderSeason(j2);
