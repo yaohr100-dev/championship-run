@@ -938,8 +938,10 @@ function renderMidSeason(j) {
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table></div>`;
+  const goalHtml = j.goal ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">🎯 <b>赛季目标:</b> ${j.goal.description}</div>` : '';
   $('season-result').innerHTML = `
     <div class="midseason-banner">🏀 ${t('season.midseason')} — <b>${j.wins}-${j.losses}</b> ${t('season.afterGames')} ${j.games} ${t('misc.games')}</div>
+    ${goalHtml}
     <div class="midseason-help muted">${t('season.midseasonHelp')}</div>
     <div class="row" style="margin-top:8px">
       <button id="adjust-mid" class="ghost">🎯 ${t('season.adjustLineup')}</button>
@@ -974,8 +976,14 @@ function renderSeason(j) {
     ? `<button id="go-playoffs" class="primary" style="margin-top:16px">${t('season.toPlayoffs')}</button>`
     : `<p class="muted" style="margin-top:16px">${t('season.missedPlayoffs')} <button id="go-home-missed" class="ghost">${t('season.backHome')}</button></p>`;
 
+  const goalResultHtml = j.goalResult ? `<div class="midseason-banner" style="border-left:3px solid ${j.goalResult.met ? 'var(--good)' : 'var(--bad)'}">
+    ${j.goalResult.met ? '✅' : '❌'} <b>赛季目标:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
+  </div>` : '';
+  const eventsHtml = j.events && j.events.length ? `<div class="panel"><h3>📢 赛季故事</h3>${j.events.map(e => `<p>${e.text}</p>`).join('')}</div>` : '';
+
   $('season-result').innerHTML =
     (blind ? `<p class="muted">${j.teamName} (${j.conference})</p>` : `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>`) +
+    goalResultHtml + eventsHtml +
     gameLogHtml(j.gameLog) +
     awardsHtml(j.awards) +
     standingsHtml(j.east, j.west) + avgTable + playoffBtn;
@@ -1028,6 +1036,14 @@ function renderBracket(rounds, nextMatchups) {
 function renderMatchups(matchups, round) {
   $('playoffs-body').innerHTML = `
     <h3>${t('playoffs.round')} ${round}</h3>
+    <div class="panel" style="margin-bottom:12px">
+      <b>🛡️ 防守策略</b>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <label class="inline"><input type="radio" name="defense" value="man" checked> 人盯人 (默认)</label>
+        <label class="inline"><input type="radio" name="defense" value="zone"> 联防 (+1.5 vs三分大队)</label>
+        <label class="inline"><input type="radio" name="defense" value="double"> 包夹核心 (+1.0 vs单核球队)</label>
+      </div>
+    </div>
     <div class="bracket">${matchups.map((m) => `
       <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
         <div class="series-teams">
@@ -1039,6 +1055,8 @@ function renderMatchups(matchups, round) {
     <button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${round}</button>`;
 
   $('simulate-round').addEventListener('click', async () => {
+    const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
+    await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
     const j = await api('/api/playoffs/round', { method: 'POST' });
     renderRoundResults(j);
   });

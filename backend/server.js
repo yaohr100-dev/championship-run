@@ -1186,6 +1186,20 @@ function finishSeason(res, config, result, playerAverages) {
   // evaluate season goal
   const goal = getState('season_goal') ? JSON.parse(getState('season_goal')) : null;
   const goalResult = evaluateGoal(goal, result, conf);
+
+  // generate mid-season narrative events from accumulated stats
+  const events = [];
+  const myPlayers = playerAverages || [];
+  // breakout star: top scorer on user team averaged 25+ ppg
+  const topScorer = myPlayers.sort((a, b) => b.pts - a.pts)[0];
+  if (topScorer && topScorer.pts >= 25) events.push({ type: 'breakout', text: `${topScorer.name} averaged ${topScorer.pts.toFixed(1)} PPG — a breakout season!`, player: topScorer.name });
+  // defensive anchor: player with most blocks+steals
+  const defPlayer = myPlayers.sort((a, b) => (b.stl + b.blk) - (a.stl + a.blk))[0];
+  if (defPlayer && (defPlayer.stl + defPlayer.blk) >= 3) events.push({ type: 'defense', text: `${defPlayer.name} anchored the defense with ${defPlayer.stl.toFixed(1)} STL + ${defPlayer.blk.toFixed(1)} BLK per game.`, player: defPlayer.name });
+  // team chemistry: if won 50+ games
+  if (myStanding.wins >= 50) events.push({ type: 'chemistry', text: `The team clicked — ${myStanding.wins} wins! Chemistry was off the charts.` });
+  // struggle: if lost 50+ games
+  if ((SEASON_GAMES - myStanding.wins) >= 50) events.push({ type: 'struggle', text: `A brutal ${myStanding.wins}-${SEASON_GAMES - myStanding.wins} season. The rebuild is on.` });
   setState('season_game_log', JSON.stringify(myStanding.gameLog || []));
   setState('season_averages', JSON.stringify(playerAverages));
   setState('season_standings', JSON.stringify({
@@ -1220,6 +1234,7 @@ function finishSeason(res, config, result, playerAverages) {
     madePlayoffs,
     goal,
     goalResult,
+    events,
   };
   setState('phase', 'season');
   setState('season_report', JSON.stringify(report));
@@ -1633,15 +1648,15 @@ function avgStats(acc, games) {
   }));
 }
 
-function simulateSeries(a, b) {
+function simulateSeries(a, b, aBoost = 0, bBoost = 0) {
   let aw = 0, bw = 0;
   const games = [];
   const aIsUser = a.isUser, bIsUser = b.isUser;
   const aAcc = {}, bAcc = {};
 
-  // playoff strength (top-heavy minutes) + hard-mode AI bonus, computed once
-  const aStrength = sim.teamStrength(a.players, true) + (a.isUser ? 0 : sim.HARD_AI_BONUS);
-  const bStrength = sim.teamStrength(b.players, true) + (b.isUser ? 0 : sim.HARD_AI_BONUS);
+  // playoff strength (top-heavy minutes) + hard-mode AI bonus + strategy boost
+  const aStrength = sim.teamStrength(a.players, true) + (a.isUser ? 0 : sim.HARD_AI_BONUS) + aBoost;
+  const bStrength = sim.teamStrength(b.players, true) + (b.isUser ? 0 : sim.HARD_AI_BONUS) + bBoost;
 
   // 2-2-1-1-1 home court: the team with the better regular-season record hosts
   // games 1,2,5,7; the worse record hosts 3,4,6. This uses `wins`, so it stays with
@@ -1745,14 +1760,36 @@ app.post('/api/playoffs/start', (req, res) => {
   });
 });
 
+app.post('/api/playoffs/strategy', (req, res) => {
+  const { strategy } = req.body || {};
+  const valid = ['man', 'zone', 'double'];
+  if (!valid.includes(strategy)) return res.status(400).json({ error: 'Invalid strategy' });
+  setState('defense_strategy', strategy);
+  const bonus = strategy === 'zone' ? '+1.5 strength vs 3PT-heavy teams' : strategy === 'double' ? '+1.0 strength vs star-dominated teams' : 'No bonus (default)';
+  res.json({ ok: true, strategy, bonus });
+});
+
 app.post('/api/playoffs/round', (req, res) => {
   const raw = getState('playoff_state');
   if (!raw) return res.status(400).json({ error: 'Start the playoffs first' });
   const state = JSON.parse(raw);
   if (state.champion) return res.status(400).json({ error: 'Playoffs already finished' });
 
+  // Apply defensive strategy bonus to user's team strength this round
+  const strategy = getState('defense_strategy') || 'man';
+  const strategyBonus = strategy === 'zone' ? 1.5 : strategy === 'double' ? 1.0 : 0;
+
   const matchups = matchupsFor(state);
-  const results = matchups.map(m => ({ ...simulateSeries(m.a, m.b), conf: m.conf, a: m.a, b: m.b }));
+  const results = matchups.map(m => {
+    const isUserSeries = m.a.isUser || m.b.isUser;
+    // Apply strategy bonus to user team
+    let aBoost = 0, bBoost = 0;
+    if (isUserSeries && strategyBonus > 0) {
+      if (m.a.isUser) aBoost = strategyBonus;
+      else bBoost = strategyBonus;
+    }
+    return { ...simulateSeries(m.a, m.b, aBoost, bBoost), conf: m.conf, a: m.a, b: m.b };
+  });
 
   // accumulate each round's series for the bracket view
   state.rounds.push(results.map(s => seriesView(s)));
