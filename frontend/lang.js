@@ -70,6 +70,9 @@ const LANG = {
     'fa.sign': 'Sign',
     'fa.contract': 'Contract',
     'fa.years': 'yr',
+    'fa.salary': 'Salary',
+    'fa.needs': 'Needs',
+    'fa.refresh': 'Refresh market',
 
     // ---- Lineup ----
     'lineup.title': 'Set Your Starting 5',
@@ -304,6 +307,9 @@ const LANG = {
     'fa.sign': '签约',
     'fa.contract': '合同',
     'fa.years': '年',
+    'fa.salary': '薪资',
+    'fa.needs': '需求',
+    'fa.refresh': '刷新市场',
     'lineup.title': '设置首发五人',
     'lineup.desc': '为每个位置分配一名球员。错位球员会受到评分惩罚。',
     'lineup.strength': '球队实力',

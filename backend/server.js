@@ -262,14 +262,53 @@ app.get('/api/roster', (req, res) => {
 });
 
 // ---- offseason free agency (dynasty) ----
+const FA_MARKET_SIZE = 15;
+const FA_MAX_REFRESH = 3;
+const FA_SALARY_CAP = 500; // softer cap for FA (vs $400M for drafts)
+
+function faMarket() {
+  return getState('fa_market') ? JSON.parse(getState('fa_market')) : [];
+}
+function faRefreshes() {
+  return parseInt(getState('fa_refreshes') || String(FA_MAX_REFRESH), 10);
+}
+
+// Generate the initial FA market: a fixed pool of candidates drawn once.
+function buildFAMarket() {
+  const pool = sim.freeAgentPool(db);
+  const market = sim.shuffle(pool).slice(0, FA_MARKET_SIZE);
+  setState('fa_market', JSON.stringify(market.map(p => p.id)));
+  setState('fa_refreshes', String(FA_MAX_REFRESH));
+  return market;
+}
+
 app.get('/api/freeagency', (req, res) => {
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
   const contracts = playerContracts();
+  let market = faMarket();
+  if (!market.length) market = buildFAMarket();
+  const salTotal = roster.reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0);
+  // position needs
+  const posCount = {};
+  for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
+  const needs = sim.POSITIONS.filter(pos => (posCount[pos] || 0) < 2);
   res.json({
     roster: roster.map((p) => ({ ...playerBrief(p), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })),
     rosterSize: sim.ROSTER_SIZE,
-    candidates: sim.freeAgentCandidates(db).map(playerBrief),
+    candidates: market.map(playerBrief),
+    salTotal,
+    salCap: FA_SALARY_CAP,
+    refreshes: faRefreshes(),
+    needs,
   });
+});
+
+app.post('/api/fa/refresh', (req, res) => {
+  const left = faRefreshes();
+  if (left <= 0) return res.status(400).json({ error: 'No refreshes left' });
+  setState('fa_refreshes', String(left - 1));
+  const market = buildFAMarket();
+  res.json({ candidates: market.map(playerBrief), refreshes: left - 1 });
 });
 
 app.post('/api/release', (req, res) => {
@@ -291,8 +330,15 @@ app.post('/api/sign', (req, res) => {
   const session = currentSession();
   const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(session).c;
   if (count >= sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster full — release a player first' });
-  const p = db.prepare('SELECT name, age, session_id FROM players WHERE id = ?').get(playerId);
+  const p = db.prepare('SELECT name, age, session_id, overall, epm FROM players WHERE id = ?').get(playerId);
   if (!p) return res.status(400).json({ error: 'Player not found' });
+  // FA salary cap check
+  const roster = applyDynasty(db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session));
+  const curSal = roster.reduce((s, x) => s + sim.playerSalary(x.overall, x.epm), 0);
+  const newSal = curSal + sim.playerSalary(p.overall, p.epm);
+  if (getState('game_mode') === 'dynasty' && newSal > FA_SALARY_CAP) {
+    return res.json({ accepted: false, message: `薪资空间不足: 当前 $${curSal}M + 签约 $${sim.playerSalary(p.overall, p.epm)}M = $${newSal}M (上限 $${FA_SALARY_CAP}M)` });
+  }
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(session, playerId, 'bench', null);
   const ages = playerAges();
   const contracts = playerContracts();
@@ -303,13 +349,52 @@ app.post('/api/sign', (req, res) => {
   setPlayerAges(ages);
   setPlayerContracts(contracts);
   setPlayerDevo(devo);
-  res.json({ ok: true, rosterCount: count + 1 });
+  res.json({ ok: true, rosterCount: count + 1, salary: newSal });
 });
 
 // Leave free agency and move to the lineup (roster must be full).
+// AI teams also fill their gaps from the FA market.
 app.post('/api/freeagency/done', (req, res) => {
-  const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+  const session = currentSession();
+  const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(session).c;
   if (count !== sim.ROSTER_SIZE) return res.status(400).json({ error: `Roster must be full (${sim.ROSTER_SIZE}) before continuing` });
+
+  // AI teams auto-sign from remaining FA pool to fill gaps
+  const marketIds = faMarket();
+  const available = new Set(marketIds);
+  // remove players already on user roster
+  for (const r of db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session)) available.delete(r.player_id);
+  const ages = playerAges();
+  const contracts = playerContracts();
+  const devo = playerDevo();
+  const confOf = {};
+  for (const t of sim.NBA_TEAMS) confOf[t.name] = t.conf;
+  const ltRows = db.prepare('SELECT team_name, player_id FROM league_teams WHERE session_id = ?').all(session);
+  const byTeam = {};
+  for (const r of ltRows) { if (!byTeam[r.team_name]) byTeam[r.team_name] = []; byTeam[r.team_name].push(r.player_id); }
+  const ins = db.prepare('INSERT INTO league_teams (session_id, team_name, conf, player_id, role, slot) VALUES (?, ?, ?, ?, ?, ?)');
+  // fill teams that have <10 players
+  const draftOrder = getState('draft_order') ? JSON.parse(getState('draft_order')) : Object.keys(byTeam);
+  for (const team of draftOrder) {
+    const roster = byTeam[team] || [];
+    while (roster.length < sim.ROSTER_SIZE && available.size > 0) {
+      const pickId = [...available].reduce((best, id) => {
+        const p = db.prepare('SELECT id, overall FROM players WHERE id = ?').get(id);
+        return p && (!best || p.overall > best.overall) ? p : best;
+      }, null);
+      if (!pickId) break;
+      available.delete(pickId.id);
+      const p = db.prepare('SELECT name, age FROM players WHERE id = ?').get(pickId.id);
+      ins.run(session, team, confOf[team] || 'West', pickId.id, roster.length < sim.STARTER_COUNT ? 'starter' : 'bench', null);
+      if (p) { ages[p.name] = p.age; contracts[p.name] = 2; seedDevo(devo, p.name); }
+      roster.push(pickId.id);
+    }
+  }
+  setPlayerAges(ages);
+  setPlayerContracts(contracts);
+  setPlayerDevo(devo);
+  setState('fa_market', '[]');
+  setState('fa_refreshes', String(FA_MAX_REFRESH));
   setState('phase', 'lineup');
   res.json({ ok: true });
 });

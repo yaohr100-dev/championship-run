@@ -457,6 +457,25 @@ $('reroll').addEventListener('click', async () => {
 // ---------- Offseason Free Agency ----------
 async function loadFreeAgency() {
   const j = await api('/api/freeagency');
+  // info bar: salary + needs
+  const info = $('fa-info');
+  const salPct = Math.round(j.salTotal / j.salCap * 100);
+  const salColor = salPct > 90 ? 'var(--bad)' : salPct > 75 ? 'var(--gold)' : 'var(--good)';
+  info.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <span><b>${t('fa.salary')}:</b> $${j.salTotal}M / $${j.salCap}M <span style="color:${salColor}">(${salPct}%)</span></span>
+      ${j.needs && j.needs.length ? `<span><b>${t('fa.needs')}:</b> ${j.needs.map(p => `<span class="pos" style="margin-left:4px">${p}</span>`).join('')}</span>` : ''}
+    </div>`;
+  const btn = $('fa-refresh');
+  btn.textContent = `${t('fa.refresh')} (${j.refreshes})`;
+  btn.disabled = j.refreshes <= 0;
+  btn.onclick = async () => {
+    const r = await api('/api/fa/refresh', { method: 'POST' });
+    if (r.error) { toast(r.error, 'error'); return; }
+    btn.textContent = `${t('fa.refresh')} (${r.refreshes})`;
+    btn.disabled = r.refreshes <= 0;
+    renderFACandidates(r.candidates);
+  };
   renderFARoster(j.roster);
   renderFACandidates(j.candidates);
 }
@@ -490,7 +509,8 @@ function renderFACandidates(candidates) {
       <button data-id="${c.id}">${t('fa.sign')}</button>`;
     card.querySelector('button').addEventListener('click', async () => {
       try {
-        await api('/api/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
+        const r = await api('/api/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
+        if (r.accepted === false) { toast(r.message, 'error'); return; }
         await loadFreeAgency();
       } catch (e) { toast(e.message, 'error'); }
     });
