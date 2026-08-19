@@ -971,9 +971,17 @@ function renderMidSeason(j) {
     $('finish-season').disabled = true;
     $('finish-season').textContent = '模拟中…';
     $('season-result').innerHTML = `<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div>`;
-    const j2 = await api('/api/season/finish', { method: 'POST' });
-    state.midSeason = null;
-    renderSeason(j2);
+    try {
+      const j2 = await api('/api/season/finish', { method: 'POST' });
+      state.midSeason = null;
+      renderSeason(j2);
+    } catch (e) {
+      // recover: re-enable the button so the user can retry
+      $('finish-season').disabled = false;
+      $('finish-season').textContent = `▶ ${t('season.simulateSecond')}`;
+      $('season-result').innerHTML = `<p class="bad">模拟失败: ${e.message}</p><p class="muted">请检查服务器日志,然后重试。</p>`;
+      toast(e.message, 'error');
+    }
   });
 }
 
