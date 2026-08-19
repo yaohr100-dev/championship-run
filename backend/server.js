@@ -687,10 +687,18 @@ app.post('/api/next-season', (req, res) => {
   }
   setPlayerMorale(morale);
 
+  // update chemistry: players who stayed on roster get +1 per season, new arrivals start at 0
+  const chem = playerChemistry();
+  const rosterNames = db.prepare('SELECT p.name FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session).map(r => r.name);
+  for (const name of rosterNames) {
+    chem[name] = (chem[name] || 0) + 1;
+  }
+  setPlayerChemistry(chem);
+
   const totalRetirees = retirements.length + Object.values(aiNeeds).reduce((a, b) => a + b.length, 0);
 
   // reset transient season state, keep identity + dynasty + difficulty/mode + history
-  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'prev_overalls', 'hall_of_fame'];
+  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'player_chemistry', 'prev_overalls', 'hall_of_fame'];
   const keepVals = {};
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
   db.prepare('DELETE FROM state WHERE session_id = ?').run(session);
@@ -901,6 +909,17 @@ function seedContract(contracts, name, isRookie) {
   if (contracts[name] == null) contracts[name] = isRookie ? 4 : veteranContract();
 }
 
+// Chemistry: tracks how many seasons each player has been on the user's roster.
+// Keyed by NAME. Higher chemistry = player performs slightly better (+0.5 OVR per
+// season together, capped at +3). Resets when player leaves.
+function playerChemistry() {
+  const raw = getState('player_chemistry');
+  return raw ? JSON.parse(raw) : {};
+}
+function setPlayerChemistry(chem) {
+  setState('player_chemistry', JSON.stringify(chem));
+}
+
 // Season-level morale per player (keyed by NAME), range -5..5. Settled each offseason
 // from role + team record; nudges a player's effective overall by ~±3.
 function playerMorale() {
@@ -934,6 +953,7 @@ function applyDynasty(players) {
   const ages = playerAges();
   const morale = playerMorale();
   const devo = playerDevo();
+  const chem = playerChemistry();
   for (const p of players) {
     const curAge = ages[p.name] != null ? ages[p.name] : p.age;
     if (ages[p.name] != null) {
@@ -941,7 +961,6 @@ function applyDynasty(players) {
       const baseOverall = p.overall;
       const baseEpm = p.epm; // database value = base EPM for individual variation
       p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
-      // EPM derived from current effective OVR, blended with individual base EPM
       p.epm = sim.derivedEpm(p.overall, baseEpm);
       const epmFromOvr = (p.overall - 80) * 0.33;
       const blended = epmFromOvr * 0.85 + baseEpm * 0.15;
@@ -949,8 +968,12 @@ function applyDynasty(players) {
       p.depm = +Math.max(-3, Math.min(4, blended * 0.45)).toFixed(1);
       p.age = curAge;
     }
+    // morale: ±0.5 OVR per morale point
     const m = morale[p.name] || 0;
     if (m) p.overall = Math.max(40, p.overall + Math.round(m * 0.5));
+    // chemistry: +0.5 OVR per season together, capped at +3
+    const c = chem[p.name] || 0;
+    if (c > 0) p.overall = Math.min(99, p.overall + Math.min(3, Math.round(c * 0.5)));
   }
   return players;
 }
