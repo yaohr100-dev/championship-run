@@ -588,27 +588,26 @@ app.post('/api/next-season', (req, res) => {
     }
   }
 
-  // Re-sign willingness: higher refusal chance for unhappy/young/star players on bad teams.
-  //   base refusal: 10%
-  //   morale < -2: +20%, morale < 0: +10%
-  //   overall >= 85: +15% (stars have leverage)
-  //   overall >= 90: +10% more (superstars can demand trades)
-  //   age >= 33: -15% (veterans prefer stability)
-  //   winPct < 0.35: +15% (bad teams lose players)
-  //   clamp: 5% - 60%
+  // Re-sign willingness: multiplicative model so factors don't stack to extremes.
+  //   base: 12% for everyone
+  //   quality multiplier: stars (OVR≥85) have 1.5x leverage, superstars (≥90) 2.0x
+  //   morale multiplier: unhappy (≤-2) → 1.8x, slightly unhappy (<0) → 1.3x
+  //   team multiplier: bad teams (winPct<35%) → 1.4x
+  //   age dampener: veterans (≥33) → 0.5x (prefer stability)
+  //   clamp: 3% - 45%
   const refused = [];
   for (const p of expiring) {
-    let refusal = 0.10;
-    if (p.morale <= -2) refusal += 0.20;
-    else if (p.morale < 0) refusal += 0.10;
-    if (p.overall >= 90) refusal += 0.25;
-    else if (p.overall >= 85) refusal += 0.15;
-    if (p.age >= 33) refusal -= 0.15;
-    if (winPct < 0.35) refusal += 0.15;
-    refusal = Math.max(0.05, Math.min(0.60, refusal));
-    if (Math.random() < refusal) {
+    let prob = 0.12;
+    if (p.overall >= 90) prob *= 2.0;
+    else if (p.overall >= 85) prob *= 1.5;
+    else if (p.overall >= 78) prob *= 1.2;
+    if (p.morale <= -2) prob *= 1.8;
+    else if (p.morale < 0) prob *= 1.3;
+    if (winPct < 0.35) prob *= 1.4;
+    if (p.age >= 33) prob *= 0.5;
+    prob = Math.max(0.03, Math.min(0.45, prob));
+    if (Math.random() < prob) {
       refused.push(p);
-      // remove contract entry — player leaves
       delete contracts[p.name];
     }
   }
