@@ -786,7 +786,7 @@ app.post('/api/next-season', (req, res) => {
   const totalRetirees = retirements.length + Object.values(aiNeeds).reduce((a, b) => a + b.length, 0);
 
   // reset transient season state, keep identity + dynasty + difficulty/mode + history
-  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'player_chemistry', 'prev_overalls', 'hall_of_fame'];
+  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'player_chemistry', 'prev_overalls', 'hall_of_fame', 'career_stats', 'league_news'];
   const keepVals = {};
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
   db.prepare('DELETE FROM state WHERE session_id = ?').run(session);
@@ -869,6 +869,7 @@ app.post('/api/next-season', (req, res) => {
       retiredLegends,
       refused: refused || [],
       aiTrades: aiTradeLog || [],
+      news: getState('league_news') ? JSON.parse(getState('league_news')) : [],
     },
   });
 });

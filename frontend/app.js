@@ -549,7 +549,10 @@ function renderRecap(recap) {
   const refusals = recap.refused && recap.refused.length
     ? `<div class="panel" style="border-color:var(--bad)"><b>${t('recap.refused')}:</b><div class="chip-list">${recap.refused.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position || ''}</span> <span class="muted">(OVR ${p.overall})</span></span>`).join('')}</div><p class="muted" style="margin-top:6px">${t('recap.refusedDesc')}</p></div>`
     : '';
-  box.innerHTML = champ + mvp + legends + refusals;
+  const news = recap.news && recap.news.length
+    ? `<div class="panel"><b>📰 联盟新闻</b><ul style="margin:8px 0 0 18px">${recap.news.map((n) => `<li style="margin-bottom:4px">${n}</li>`).join('')}</ul></div>`
+    : '';
+  box.innerHTML = champ + mvp + news + legends + refusals;
 }
 
 $('recap-continue').addEventListener('click', async () => {
