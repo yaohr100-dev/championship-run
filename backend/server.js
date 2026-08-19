@@ -773,8 +773,8 @@ function seedDevo(devo, name) {
 
 // Overwrite overall + age on a team's roster rows with their dynasty-adjusted values,
 // plus a season-morale nudge (±3) and a fallback potential for new players.
-// EPM age curve: uses epmAgeFactor from sim.js — younger players grow EPM slowly
-// (learning curve), older players lose EPM faster (impact fades with body).
+// EPM age curve: EPM regresses toward 0 as players age (mean reversion).
+// Uses epmAgeFactor from sim.js — returns a fraction of (0 - currentEpm) to apply.
 
 function applyDynasty(players) {
   const ages = playerAges();
@@ -786,13 +786,14 @@ function applyDynasty(players) {
       const baseAge = p.age;
       const baseOverall = p.overall;
       p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
-      // EPM follows overall direction, dampened by age-dependent factor
-      const overallDelta = p.overall - baseOverall;
-      const dampen = sim.epmAgeFactor(curAge);
-      const epmDelta = Math.round(overallDelta * dampen * 10) / 10;
-      p.epm = +(p.epm + epmDelta).toFixed(1);
-      p.oepm = +(p.oepm + epmDelta * 0.55).toFixed(1);
-      p.depm = +(p.depm + epmDelta * 0.45).toFixed(1);
+      // EPM mean reversion: drifts toward 0, rate depends on current age
+      const rate = sim.epmAgeFactor(curAge);
+      const epmDelta = Math.round((0 - p.epm) * rate * 10) / 10;
+      if (epmDelta !== 0) {
+        p.epm = +(p.epm + epmDelta).toFixed(1);
+        p.oepm = +(p.oepm + epmDelta * 0.55).toFixed(1);
+        p.depm = +(p.depm + epmDelta * 0.45).toFixed(1);
+      }
       p.age = curAge;
     }
     const m = morale[p.name] || 0;

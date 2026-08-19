@@ -95,14 +95,16 @@ function ageDelta(age) {
   return -17; // 38+: nearly washed
 }
 
-// EPM age dampening: younger = EPM grows slower than OVR (learning curve),
-// older = EPM declines slightly faster than OVR (impact drops when body fails).
-// Returns a multiplier on the overall delta to get the EPM delta.
+// EPM age dampening: EPM regresses toward 0 as players age (mean reversion).
+// Young players' EPM grows slowly (learning curve), prime players hold steady,
+// older players' EPM erodes toward 0 — but never goes wildly negative.
+// Returns the fraction of (0 - currentEpm) to apply each year.
 function epmAgeFactor(age) {
-  if (age <= 24) return 0.4;   // young: slow EPM growth
-  if (age <= 28) return 0.5;   // prime: moderate
-  if (age <= 32) return 0.6;   // early decline: EPM starts catching down
-  return 0.7;                   // late decline: EPM drops faster (impact fades with body)
+  if (age <= 24) return 0.08;   // young: slow EPM growth toward potential
+  if (age <= 28) return 0.02;   // prime: almost no drift
+  if (age <= 32) return 0.06;   // early decline: gentle erosion
+  if (age <= 35) return 0.12;   // mid decline: noticeable erosion
+  return 0.18;                   // late decline: EPM fades toward 0
 }
 
 // Retirement age by player caliber: a star's body holds up longer than a role
