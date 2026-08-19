@@ -1135,6 +1135,45 @@ function formatUserAverages(entries, userTeam, div = 1) {
   }).sort((x, y) => y.pts - x.pts);
 }
 
+// Generate a season goal based on team strength relative to the league.
+// Returns { type, target, description }.
+function generateSeasonGoal(teamStrength, leagueAvg) {
+  const diff = teamStrength - leagueAvg;
+  if (diff > 5) return { type: 'champion', target: 0, description: 'Win the championship' };
+  if (diff > 2) return { type: 'conf_finals', target: 0, description: 'Reach the conference finals' };
+  if (diff > -1) return { type: 'playoffs', target: 0, description: 'Make the playoffs' };
+  if (diff > -4) return { type: 'wins', target: 42, description: 'Win at least 42 games' };
+  return { type: 'wins', target: 35, description: 'Win at least 35 games' };
+}
+
+// Evaluate season goal after the season ends.
+function evaluateGoal(goal, result, conf) {
+  if (!goal) return { met: false, reason: 'No goal set' };
+  const allTeams = [...result.east, ...result.west];
+  const me = allTeams.find(t => t.isUser);
+  if (!me) return { met: false, reason: 'Team not found' };
+  const madePlayoffs = (conf === 'East' ? result.east : result.west).slice(0, 8).some(t => t.isUser);
+  const playoffResult = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
+  switch (goal.type) {
+    case 'champion': {
+      const userChamp = playoffResult && playoffResult.champion && !playoffResult.userEliminated;
+      return { met: !!userChamp, reason: userChamp ? 'Won the championship!' : 'Did not win the championship' };
+    }
+    case 'conf_finals': {
+      const reached = playoffResult && (!playoffResult.userEliminated || (playoffResult.userEliminatedRound || 0) >= 3);
+      return { met: !!reached, reason: reached ? 'Reached conference finals' : 'Eliminated before conference finals' };
+    }
+    case 'playoffs': {
+      return { met: madePlayoffs, reason: madePlayoffs ? 'Made the playoffs' : 'Missed the playoffs' };
+    }
+    case 'wins': {
+      const met = me.wins >= goal.target;
+      return { met, reason: met ? `Won ${me.wins} games (target: ${goal.target})` : `Only won ${me.wins} games (target: ${goal.target})` };
+    }
+    default: return { met: false, reason: 'Unknown goal' };
+  }
+}
+
 // Shared season-finish: awards → trophies, save state, auto-save team, respond.
 function finishSeason(res, config, result, playerAverages) {
   setState('season_result', JSON.stringify(result));
@@ -1143,6 +1182,10 @@ function finishSeason(res, config, result, playerAverages) {
   const madePlayoffs = myConf.slice(0, 8).some((t) => t.isUser);
   const myStanding = [...result.east, ...result.west].find((t) => t.isUser);
   setState('season_record', JSON.stringify({ wins: myStanding.wins, losses: myStanding.losses, conference: conf }));
+
+  // evaluate season goal
+  const goal = getState('season_goal') ? JSON.parse(getState('season_goal')) : null;
+  const goalResult = evaluateGoal(goal, result, conf);
   setState('season_game_log', JSON.stringify(myStanding.gameLog || []));
   setState('season_averages', JSON.stringify(playerAverages));
   setState('season_standings', JSON.stringify({
@@ -1175,6 +1218,8 @@ function finishSeason(res, config, result, playerAverages) {
     gameLog: myStanding.gameLog || [],
     awards: result.awards,
     madePlayoffs,
+    goal,
+    goalResult,
   };
   setState('phase', 'season');
   setState('season_report', JSON.stringify(report));
@@ -1204,6 +1249,11 @@ app.post('/api/season/start', (req, res) => {
   const schedule = sim.buildSchedule(teams);
   const standings = sim.simulateGames(teams, schedule.first, aiBonus);
 
+  // generate season goal based on team strength vs league
+  const userStr = sim.teamStrength(userTeam);
+  const goal = generateSeasonGoal(userStr, leagueAvg);
+  setState('season_goal', JSON.stringify(goal));
+
   setState('season_league', JSON.stringify({ teams, leagueAvg, aiBonus }));
   setState('season_schedule', JSON.stringify(schedule));
   setState('season_standings', JSON.stringify(standings));
@@ -1222,6 +1272,7 @@ app.post('/api/season/start', (req, res) => {
     playerAverages: formatUserAverages(Object.values(me.acc), userTeam, HALF_GAMES),
     east: east.map((t) => teamView(t, true)),
     west: west.map((t) => teamView(t, true)),
+    goal: goal,
   };
   setState('phase', 'midseason');
   setState('midseason_report', JSON.stringify(report));
