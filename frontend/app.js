@@ -450,7 +450,14 @@ function renderCandidates(candidates) {
       <button data-id="${c.id}">${t('draft.pick')}</button>`;
     card.querySelector('button').addEventListener('click', async () => {
       try {
-        await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
+        const r = await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
+        if (r.error) {
+          toast(r.error, 'error');
+          if (r.error.includes('Roster full')) {
+            toast('请先释放一名球员再选秀', 'info');
+          }
+          return;
+        }
         await loadDraft();
       } catch (e) { toast(e.message, 'error'); }
     });

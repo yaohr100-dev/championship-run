@@ -197,19 +197,9 @@ app.post('/api/roster', (req, res) => {
   let count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const isRookieDraft = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
 
-  // Rookie draft: roster may be full (10/10), in that case auto-cut the worst player
+  // Roster must have room — user must release a player first
   if (count >= sim.ROSTER_SIZE) {
-    if (!isRookieDraft) return res.status(400).json({ error: 'Roster already full' });
-    const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
-    const benchPlayers = roster.filter(p => p.role === 'bench').sort((a, b) => a.overall - b.overall);
-    const cut = benchPlayers[0];
-    if (cut) {
-      db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(cut.id, currentSession());
-      const contracts = playerContracts();
-      delete contracts[cut.name];
-      setPlayerContracts(contracts);
-    }
-    count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+    return res.status(400).json({ error: 'Roster full — release a player first' });
   }
   if (db.prepare('SELECT 1 FROM roster WHERE player_id = ? AND session_id = ?').get(playerId, currentSession()))
     return res.status(400).json({ error: 'Player already drafted' });
@@ -780,7 +770,8 @@ app.post('/api/next-season', (req, res) => {
   if (goal && record) {
     const seasonRes = getState('season_result') ? JSON.parse(getState('season_result')) : null;
     const conf = getState('conference') || 'West';
-    const goalMet = seasonRes ? evaluateGoal(goal, seasonRes, conf).met : false;
+    const goalEval = seasonRes ? evaluateGoal(goal, seasonRes, conf) : null;
+    const goalMet = goalEval ? goalEval.met : false;
     if (!goalMet) {
       for (const row of moraleRows) {
         morale[row.name] = Math.max(-5, (morale[row.name] || 0) - 1);
@@ -1184,8 +1175,10 @@ function bestAvailableRookie(availableIds, wantedPositions = []) {
   return players[0].id;
 }
 
-// AI teams auto-pick in `teamsToPick` order, each taking rookies for its retired
-// positions. Records each pick into `draft_picks` for the draft-board view.
+// AI teams auto-pick in `teamsToPick` order. Every team picks at least 1 rookie
+// (real NBA: all 30 teams pick every year regardless of retirements). Teams with
+// retired positions get position-specific picks; others pick BPA (best available).
+// After picking, teams with >10 players drop their worst bench player.
 function runAIDraft(teamsToPick) {
   const classIds = getState('draft_class') ? JSON.parse(getState('draft_class')) : [];
   const needs = getState('draft_needs') ? JSON.parse(getState('draft_needs')) : {};
@@ -1201,8 +1194,11 @@ function runAIDraft(teamsToPick) {
   const contracts = playerContracts();
   const devo = playerDevo();
   const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
+
   for (const team of teamsToPick) {
     const wanted = needs[team] || [];
+    let pickedAny = false;
+    // Phase 1: fill retired positions (position-specific)
     for (const pos of wanted) {
       const rookieId = bestAvailableRookie(available, [pos]);
       if (rookieId == null) break;
@@ -1211,8 +1207,37 @@ function runAIDraft(teamsToPick) {
       ins.run(session, team, confOf[team], rookieId, 'bench', null);
       if (p) { ages[p.name] = p.age; contracts[p.name] = 4; seedDevo(devo, p.name); }
       picks.push({ team, player: p.name, position: p.position, overall: p.overall });
+      pickedAny = true;
+    }
+    // Phase 2: every team picks at least 1 — if no retirements, take BPA
+    if (!pickedAny) {
+      const rookieId = bestAvailableRookie(available);
+      if (rookieId != null) {
+        available.delete(rookieId);
+        const p = db.prepare('SELECT name, age, position, overall FROM players WHERE id = ?').get(rookieId);
+        ins.run(session, team, confOf[team], rookieId, 'bench', null);
+        if (p) { ages[p.name] = p.age; contracts[p.name] = 4; seedDevo(devo, p.name); }
+        picks.push({ team, player: p.name, position: p.position, overall: p.overall });
+      }
     }
   }
+
+  // Phase 3: teams with >10 players drop their worst bench player
+  const ltRows = db.prepare('SELECT team_name, player_id FROM league_teams WHERE session_id = ?').all(session);
+  const byTeam = {};
+  for (const r of ltRows) { if (!byTeam[r.team_name]) byTeam[r.team_name] = []; byTeam[r.team_name].push(r.player_id); }
+  for (const [team, ids] of Object.entries(byTeam)) {
+    while (ids.length > sim.ROSTER_SIZE) {
+      // find worst bench player
+      const players = ids.map(id => db.prepare('SELECT id, overall, position FROM players WHERE id = ?').get(id)).filter(Boolean);
+      const worst = players.sort((a, b) => a.overall - b.overall)[0];
+      if (worst) {
+        db.prepare('DELETE FROM league_teams WHERE player_id = ? AND session_id = ?').run(worst.id, session);
+        ids.splice(ids.indexOf(worst.id), 1);
+      } else break;
+    }
+  }
+
   setPlayerAges(ages);
   setPlayerContracts(contracts);
   setPlayerDevo(devo);
