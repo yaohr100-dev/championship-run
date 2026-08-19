@@ -42,7 +42,6 @@ function playerBrief(p) {
     fgPct: p.fg_pct, threePct: p.three_pct, ftPct: p.ft_pct,
     rating: +sim.powerRating(p).toFixed(1),
     salary: sim.playerSalary(p.overall, p.epm),
-    potential: sim.potentialGrade(p.name),
   };
 }
 
@@ -217,15 +216,18 @@ app.post('/api/roster', (req, res) => {
   }
 
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), playerId, 'bench', null);
-  // initialize dynasty age + contract for this player (by NAME, unless already tracked)
+  // initialize dynasty age + contract + devo for this player (by NAME, unless already tracked)
   const ages = playerAges();
   const contracts = playerContracts();
+  const devo = playerDevo();
   const pname = db.prepare('SELECT name, age, session_id FROM players WHERE id = ?').get(playerId);
   if (pname) {
     if (ages[pname.name] == null) ages[pname.name] = pname.age;
-    seedContract(contracts, pname.name, pname.session_id != null); // generated rookie → 4yr, else veteran
+    seedContract(contracts, pname.name, pname.session_id != null);
+    seedDevo(devo, pname.name);
     setPlayerAges(ages);
     setPlayerContracts(contracts);
+    setPlayerDevo(devo);
   }
   // annual rookie draft: record the pick, decrement remaining picks; when done, the
   // AI teams behind the user in the order auto-draft.
@@ -294,10 +296,13 @@ app.post('/api/sign', (req, res) => {
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(session, playerId, 'bench', null);
   const ages = playerAges();
   const contracts = playerContracts();
+  const devo = playerDevo();
   if (ages[p.name] == null) ages[p.name] = p.age;
   seedContract(contracts, p.name, p.session_id != null);
+  seedDevo(devo, p.name);
   setPlayerAges(ages);
   setPlayerContracts(contracts);
+  setPlayerDevo(devo);
   res.json({ ok: true, rosterCount: count + 1 });
 });
 
@@ -367,11 +372,12 @@ app.post('/api/next-season', (req, res) => {
   // snapshot this season's (pre-morale) user overalls so next season's result screen
   // can show each player's year-over-year growth.
   const prevAges = playerAges();
+  const prevDevo = playerDevo();
   const prevRosterRows = db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
   const prevOveralls = {};
   for (const p of prevRosterRows) {
     const curAge = prevAges[p.name] != null ? prevAges[p.name] : p.age;
-    prevOveralls[p.name] = sim.effectiveOverall(p.overall, p.age, curAge, p.name);
+    prevOveralls[p.name] = sim.effectiveOverall(p.overall, p.age, curAge, prevDevo[p.name] || 1);
   }
   setState('prev_overalls', JSON.stringify(prevOveralls));
 
@@ -472,7 +478,7 @@ app.post('/api/next-season', (req, res) => {
   const totalRetirees = retirements.length + Object.values(aiNeeds).reduce((a, b) => a + b.length, 0);
 
   // reset transient season state, keep identity + dynasty + difficulty/mode + history
-  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_morale', 'prev_overalls', 'hall_of_fame'];
+  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'prev_overalls', 'hall_of_fame'];
   const keepVals = {};
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
   db.prepare('DELETE FROM state WHERE session_id = ?').run(session);
@@ -654,15 +660,31 @@ function setPlayerMorale(morale) {
   setState('player_morale', JSON.stringify(morale));
 }
 
+// Per-player development factor (keyed by NAME), range 0.90–1.10. Generated once when
+// a player first enters a dynasty run, stays stable for that run, varies between runs.
+// Applied only to growth (age curve going up), not decline.
+function playerDevo() {
+  const raw = getState('player_devo');
+  return raw ? JSON.parse(raw) : {};
+}
+function setPlayerDevo(devo) {
+  setState('player_devo', JSON.stringify(devo));
+}
+function seedDevo(devo, name) {
+  if (devo[name] == null) devo[name] = +(0.90 + Math.random() * 0.20).toFixed(2); // 0.90–1.10
+}
+
 // Overwrite overall + age on a team's roster rows with their dynasty-adjusted values,
 // plus a season-morale nudge (±3) and a fallback potential for new players.
 function applyDynasty(players) {
   const ages = playerAges();
   const morale = playerMorale();
+  const devo = playerDevo();
   for (const p of players) {
+    const curAge = ages[p.name] != null ? ages[p.name] : p.age;
     if (ages[p.name] != null) {
-      p.overall = sim.effectiveOverall(p.overall, p.age, ages[p.name], p.name);
-      p.age = ages[p.name];
+      p.overall = sim.effectiveOverall(p.overall, p.age, curAge, devo[p.name] || 1);
+      p.age = curAge;
     }
     const m = morale[p.name] || 0;
     if (m) p.overall = Math.max(40, p.overall + Math.round(m * 0.5));
@@ -683,19 +705,22 @@ function persistLeague(league) {
   }
 }
 
-// Seed player_ages + contracts for every AI player so the whole league ages.
+// Seed player_ages + contracts + devo for every AI player so the whole league ages.
 function seedLeagueAges(league) {
   const ages = playerAges();
   const contracts = playerContracts();
+  const devo = playerDevo();
   for (const t of league.teams) {
     if (t.isUser) continue;
     for (const p of t.players) {
       if (ages[p.name] == null) ages[p.name] = p.age;
-      seedContract(contracts, p.name, false); // AI veterans
+      seedContract(contracts, p.name, false);
+      seedDevo(devo, p.name);
     }
   }
   setPlayerAges(ages);
   setPlayerContracts(contracts);
+  setPlayerDevo(devo);
 }
 
 // Rank a 10-man team: top 5 by effective overall as starters at their natural slot.
@@ -789,6 +814,7 @@ function runAIDraft(teamsToPick) {
   const ins = db.prepare('INSERT INTO league_teams (session_id, team_name, conf, player_id, role, slot) VALUES (?, ?, ?, ?, ?, ?)');
   const ages = playerAges();
   const contracts = playerContracts();
+  const devo = playerDevo();
   const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
   for (const team of teamsToPick) {
     const wanted = needs[team] || [];
@@ -798,12 +824,13 @@ function runAIDraft(teamsToPick) {
       available.delete(rookieId);
       const p = db.prepare('SELECT name, age, position, overall FROM players WHERE id = ?').get(rookieId);
       ins.run(session, team, confOf[team], rookieId, 'bench', null);
-      if (p) { ages[p.name] = p.age; contracts[p.name] = 4; } // rookie deal
+      if (p) { ages[p.name] = p.age; contracts[p.name] = 4; seedDevo(devo, p.name); }
       picks.push({ team, player: p.name, position: p.position, overall: p.overall });
     }
   }
   setPlayerAges(ages);
   setPlayerContracts(contracts);
+  setPlayerDevo(devo);
   setState('draft_picks', JSON.stringify(picks));
 }
 
@@ -1557,6 +1584,7 @@ app.get('/api/result', (req, res) => {
   const seasonHistory = getState('season_history') ? JSON.parse(getState('season_history')) : [];
   const contracts = playerContracts();
   const ages = playerAges();
+  const devo = playerDevo();
   const prevOveralls = getState('prev_overalls') ? JSON.parse(getState('prev_overalls')) : {};
   res.json({
     teamName: getState('team_name') || 'My Team',
@@ -1568,9 +1596,9 @@ app.get('/api/result', (req, res) => {
     roster: roster.map((p) => {
       const base = db.prepare('SELECT overall, age FROM players WHERE id = ?').get(p.id);
       const curAge = ages[p.name] != null ? ages[p.name] : (base ? base.age : p.age);
-      const pure = base ? sim.effectiveOverall(base.overall, base.age, curAge, p.name) : p.overall;
+      const pure = base ? sim.effectiveOverall(base.overall, base.age, curAge, devo[p.name] || 1) : p.overall;
       const delta = prevOveralls[p.name] != null ? pure - prevOveralls[p.name] : null;
-      return { name: p.name, position: p.position, age: p.age, overall: p.overall, rating: +sim.powerRating(p).toFixed(1), role: p.role, contract: contracts[p.name] ?? null, potential: sim.potentialGrade(p.name), delta };
+      return { name: p.name, position: p.position, age: p.age, overall: p.overall, rating: +sim.powerRating(p).toFixed(1), role: p.role, contract: contracts[p.name] ?? null, delta };
     }),
     gameMode,
     seasonNumber,

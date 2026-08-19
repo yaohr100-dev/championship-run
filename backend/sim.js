@@ -91,34 +91,14 @@ function retireAge(overall) {
   return 34;
 }
 
-// Per-player "potential" factor for dynasty growth, deterministic from the player's
-// NAME (so it survives reseeds and export/import, which remap players by name). Range
-// [0.75, 1.25]: some prospects bust (grow slowly), some boom (grow fast).
-function potentialFactor(name) {
-  let h = 0;
-  const s = String(name || '');
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return 0.75 + (h % 51) / 100;   // 0.75 .. 1.25
-}
-
-// Letter grade for a player's growth potential, so prospects aren't a blind bet in the
-// UI. Maps potentialFactor 0.75..1.25 to A..F.
-function potentialGrade(name) {
-  const f = potentialFactor(name);
-  if (f >= 1.15) return 'A';
-  if (f >= 1.05) return 'B';
-  if (f >= 0.95) return 'C';
-  if (f >= 0.85) return 'D';
-  return 'F';
-}
-
 // A player's effective overall = their base 2K overall + (age curve at current age) -
 // (age curve at base age). A 21-yo star gets better each year; a 30+ vet declines.
-// The growth portion (current > base, both before peak) is scaled by the player's
-// potential factor, so young prospects don't all reach their full peak.
-function effectiveOverall(baseOverall, baseAge, currentAge, name) {
+// The growth portion (current > base) is scaled by a mild random factor (0.90–1.10)
+// stored per-player in `player_devo`, so each dynasty run feels different but no
+// player is a guaranteed bust or boom.
+function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
   const growth = ageDelta(currentAge) - ageDelta(baseAge);
-  const f = growth > 0 ? potentialFactor(name) : 1;
+  const f = growth > 0 ? (devoFactor || 1) : 1;
   return Math.max(40, Math.round(baseOverall + growth * f));
 }
 
@@ -903,5 +883,5 @@ module.exports = {
   generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall, START_SEASON, seasonLabel, retireAge, potentialFactor, potentialGrade,
+  ageDelta, effectiveOverall, START_SEASON, seasonLabel, retireAge,
 };
