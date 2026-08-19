@@ -246,6 +246,10 @@ app.post('/api/roster', (req, res) => {
   // rookie draft: record the pick, then AI teams behind the user auto-draft
   const isDrafting = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
   if (isDrafting) {
+    // Verify the player is actually available (not already on an AI team)
+    const alreadyPicked = db.prepare('SELECT 1 FROM league_teams WHERE player_id = ? AND session_id = ?').get(playerId, currentSession());
+    if (alreadyPicked) return res.status(400).json({ error: 'This player was already drafted by another team' });
+
     const p = db.prepare('SELECT name, position, overall FROM players WHERE id = ?').get(playerId);
     const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
     picks.push({ team: getState('team_name') || 'My Team', player: p.name, position: p.position, overall: p.overall });
@@ -1155,11 +1159,13 @@ function resolveLeague(userTeam, config) {
 // ---- annual rookie draft ----
 
 // This year's full draft board: every unclaimed rookie, best first.
+// Excludes rookies already picked by the user (roster) AND by AI teams (league_teams).
 function draftBoard() {
   const classIds = getState('draft_class') ? JSON.parse(getState('draft_class')) : [];
   const session = currentSession();
-  const picked = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id));
-  const avail = classIds.filter((id) => !picked.has(id));
+  const pickedByUser = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id));
+  const pickedByAI = new Set(db.prepare('SELECT player_id FROM league_teams WHERE session_id = ?').all(session).map((r) => r.player_id));
+  const avail = classIds.filter((id) => !pickedByUser.has(id) && !pickedByAI.has(id));
   if (!avail.length) return [];
   const players = db.prepare(`SELECT * FROM players WHERE id IN (${avail.map(() => '?').join(',')})`).all(...avail);
   return players.sort((a, b) => b.overall - a.overall);
@@ -1186,7 +1192,8 @@ function runAIDraft(teamsToPick) {
   if (!classIds.length || !teamsToPick || !teamsToPick.length) return;
   const session = currentSession();
   const picked = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id));
-  const available = new Set(classIds.filter((id) => !picked.has(id)));
+  const pickedByAI = new Set(db.prepare('SELECT player_id FROM league_teams WHERE session_id = ?').all(session).map((r) => r.player_id));
+  const available = new Set(classIds.filter((id) => !picked.has(id) && !pickedByAI.has(id)));
   const confOf = {};
   for (const t of sim.NBA_TEAMS) confOf[t.name] = t.conf;
   const ins = db.prepare('INSERT INTO league_teams (session_id, team_name, conf, player_id, role, slot) VALUES (?, ?, ?, ?, ?, ?)');
