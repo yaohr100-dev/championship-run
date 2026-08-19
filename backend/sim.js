@@ -107,28 +107,9 @@ const EPM_MIN = -4;
 const EPM_MAX = 8;
 
 function derivedEpm(currentOvr, baseEpm) {
-  // Blend: 85% from the OVR-derived value, 15% from the player's individual base EPM.
-  // This preserves subtle individual variation while keeping EPM tightly correlated
-  // with actual ability: OVR 95 → EPM ~5.7, OVR 87 → ~2.0, OVR 80 → ~-0.4.
   const fromOvr = (currentOvr - EPM_INTERCEPT) * EPM_SLOPE;
   const blended = fromOvr * 0.85 + baseEpm * 0.15;
   return +Math.max(EPM_MIN, Math.min(EPM_MAX, blended)).toFixed(1);
-}
-
-// EPM age dampening: EPM regresses toward the league median as players age.
-// The NBA median EPM is around -1.5 (most players are below average by impact metrics).
-// Young players' EPM drifts toward their potential (base EPM), older players drift
-// toward the median — so role players (-1) stay around -1 to -2, not magically improve.
-const EPM_MEDIAN = -1.5;
-
-// Returns the fraction of (target - currentEpm) to apply each year.
-// Target is the median for declining players, or base EPM for growing players.
-function epmAgeFactor(age) {
-  if (age <= 24) return 0.08;   // young: slow EPM growth toward potential
-  if (age <= 28) return 0.02;   // prime: almost no drift
-  if (age <= 32) return 0.06;   // early decline: gentle erosion
-  if (age <= 35) return 0.12;   // mid decline: noticeable erosion
-  return 0.18;                   // late decline: EPM fades toward median
 }
 
 // Retirement age by player caliber: a star's body holds up longer than a role
@@ -143,35 +124,20 @@ function retireAge(overall) {
   return 34;
 }
 
-// A player's effective overall = their base 2K overall + (age curve at current age) -
-// (age curve at base age). Growth is scaled by the player's base quality: elite players
-// (87 OVR at 19) grow more in absolute terms than role players (70 OVR at 19), because
-// they have more "ceiling" before the theoretical max (99).
-//   qualityScale: 60 OVR → 0.65x, 70 → 0.9x, 80 → 1.15x, 87 → 1.33x, 95 → 1.53x
-// Decline targets min(70, peakOvr): high-peak players fall to 70, low-peak players
-// stay near their own (already low) peak — they retire at 34 anyway.
+// A player's effective overall from their base rating + the age curve.
+//   GROWTH (rawDelta > 0): scaled by qualityScale so elite players peak higher.
+//     qualityScale: 60 OVR → 0.50, 70 → 0.70, 80 → 0.90, 87 → 1.04, 95 → 1.20
+//   DECLINE (rawDelta ≤ 0): uses ageDelta directly, NO quality scaling.
+//     Everyone declines at the same absolute rate — more realistic. A 99-peak
+//     player and a 74-peak player both lose ~14 points by age 37.
 function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
-  const rawGrowth = ageDelta(currentAge) - ageDelta(baseAge);
-  if (rawGrowth <= 0) {
-    // decline: target = min(70, peakOvr), gentle drift toward it
-    const peakOvr = effectiveOverall(baseOverall, baseAge, 26, devoFactor);
-    const target = Math.min(70, peakOvr);
-    const decline = rawGrowth; // negative
-    // scale decline so it reaches the target by age 38-40
-    const declineScale = Math.max(1, (peakOvr - target) / 15); // how many points to lose
-    const scaled = decline * declineScale / 6; // normalize to ~6 points of raw decline = full range
-    return Math.max(40, Math.round(baseOverall + scaled));
+  const rawDelta = ageDelta(currentAge) - ageDelta(baseAge);
+  if (rawDelta > 0) {
+    const qualityScale = 0.5 + (baseOverall - 60) * 0.02;
+    const f = devoFactor || 1;
+    return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta * qualityScale * f)));
   }
-  // growth: scale by player quality so elite players peak higher
-  const qualityScale = 0.4 + (baseOverall - 50) * 0.025;
-  const f = devoFactor || 1;
-  return Math.max(40, Math.min(99, Math.round(baseOverall + rawGrowth * qualityScale * f)));
-}
-
-// EPM growth during development: grows proportionally to OVR growth.
-// Returns the absolute EPM change for a given OVR growth delta.
-function epmGrowthFromOvr(ovrGrowth) {
-  return Math.round(ovrGrowth * 0.15 * 10) / 10; // EPM grows at ~15% of OVR growth rate
+  return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta)));
 }
 
 function openDb() {
@@ -963,5 +929,5 @@ module.exports = {
   generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall, epmAgeFactor, epmGrowthFromOvr, derivedEpm, EPM_MEDIAN, START_SEASON, seasonLabel, retireAge,
+  ageDelta, effectiveOverall, derivedEpm, START_SEASON, seasonLabel, retireAge,
 };
