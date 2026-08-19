@@ -103,7 +103,7 @@ function ageDelta(age) {
 // Individual variation comes from each player's base EPM offset stored in the DB.
 const EPM_SLOPE = 0.50;
 const EPM_INTERCEPT = 83;  // OVR at which EPM ≈ 0
-const EPM_MIN = -4;
+const EPM_MIN = -3;
 const EPM_MAX = 8;
 
 function derivedEpm(currentOvr, baseEpm) {
@@ -139,7 +139,7 @@ function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
     return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta * qualityScale * f)));
   }
   // decline: higher-base players decline slower
-  const declineScale = Math.max(0.4, 1.0 - (baseOverall - 60) * 0.011);
+  const declineScale = Math.max(0.3, 1.0 - (baseOverall - 60) * 0.025);
   return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta * declineScale)));
 }
 
