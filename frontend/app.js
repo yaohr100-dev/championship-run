@@ -253,15 +253,17 @@ $('new-draft').addEventListener('click', async () => {
 
 // Dynasty mode forces hard (salary cap) + open (no blind): disable those toggles.
 function syncModeNote() {
-  const dynasty = document.querySelector('input[name=game-mode]:checked').value === 'dynasty';
+  const mode = document.querySelector('input[name=game-mode]:checked').value;
   const blindRadio = document.querySelector('input[name=mode][value=blind]');
   const normalDiff = document.querySelector('input[name=difficulty][value=normal]');
-  if (dynasty) {
+  const isDynastyLike = mode === 'dynasty' || mode === 'short3' || mode === 'short5';
+  if (isDynastyLike) {
     blindRadio.disabled = true;
     normalDiff.disabled = true;
     document.querySelector('input[name=mode][value=open]').checked = true;
     document.querySelector('input[name=difficulty][value=hard]').checked = true;
-    $('mode-note').textContent = '王朝模式：强制工资帽、显示评分、最多10个赛季。';
+    const seasons = mode === 'short3' ? 3 : mode === 'short5' ? 5 : 10;
+    $('mode-note').textContent = `强制工资帽、显示评分、最多${seasons}个赛季。`;
   } else {
     blindRadio.disabled = false;
     normalDiff.disabled = false;
@@ -1129,8 +1131,8 @@ function showResult() {
     const leaderOf = (key) => (r.seasonAverages || []).slice().sort((a, b) => b[key] - a[key])[0];
 
     // dynasty progress + history
-    const isDynasty = r.gameMode === 'dynasty';
-    const seasonHeader = isDynasty ? `${r.seasonLabel} · ${r.seasonNumber}/${r.dynastyMax}` : `${r.seasonLabel}`;
+    const isDynasty = r.gameMode === 'dynasty' || r.gameMode === 'short3' || r.gameMode === 'short5';
+    const seasonHeader = isDynasty ? `${r.seasonLabel} · ${r.seasonNumber}/${r.dynastyMax}` : `${r.seasonLabel} ${t('result.season') || 'Season'}`;
     const history = (r.seasonHistory || []);
     const historyHtml = history.length ? `
       <div class="dynasty-history">
@@ -1195,7 +1197,7 @@ function showResult() {
 // Build a self-contained printable HTML summary of the season (normal) or dynasty, and
 // download it as a .html file the user can open/print/save as PDF.
 function printSummary(r) {
-  const isDynasty = r.gameMode === 'dynasty';
+  const isDynasty = r.gameMode === 'dynasty' || r.gameMode === 'short3' || r.gameMode === 'short5';
   const title = isDynasty ? `${r.teamName} — ${t('summary.dynasty')} (${r.seasonNumber}/${r.dynastyMax} · ${r.seasonLabel})` : `${r.teamName} — ${r.seasonLabel} ${t('summary.seasonSummary')}`;
   const history = r.seasonHistory || [];
   const historyRows = history.map((h) => `

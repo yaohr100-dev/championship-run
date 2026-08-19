@@ -457,17 +457,20 @@ app.post('/api/lineup', (req, res) => {
 
 app.post('/api/reset', (req, res) => {
   const { difficulty, mode, gameMode } = req.body || {};
-  // Dynasty mode forces hard (salary cap) + open (no blind) and is capped at 10 seasons.
-  const isDynasty = gameMode === 'dynasty';
+  // Dynasty/short modes force hard + open; short modes set a lower max seasons.
+  const gm = gameMode || 'normal';
+  const isDynasty = gm === 'dynasty' || gm === 'short3' || gm === 'short5';
   db.prepare('DELETE FROM roster WHERE session_id = ?').run(currentSession());
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
   if (isDynasty || difficulty === 'hard') setState('difficulty', 'hard');
   setState('mode', isDynasty ? 'open' : (mode === 'blind' ? 'blind' : 'open'));
-  setState('game_mode', isDynasty ? 'dynasty' : 'normal');
+  setState('game_mode', gm);
+  const maxSeasons = gm === 'short3' ? 3 : gm === 'short5' ? 5 : DYNASTY_MAX_SEASONS;
+  setState('dynasty_max', String(maxSeasons));
   setState('season_number', '1');
   setState('season_history', '[]');
   setState('phase', 'draft');
-  res.json({ ok: true, gameMode: isDynasty ? 'dynasty' : 'normal' });
+  res.json({ ok: true, gameMode: gm });
 });
 
 // ---- dynasty: advance to the next season ----
@@ -765,6 +768,7 @@ app.post('/api/next-season', (req, res) => {
   setState('phase', 'draft');
   setState('draft_can_pass', '1');
 
+  const dynastyMax = parseInt(getState('dynasty_max') || String(DYNASTY_MAX_SEASONS), 10);
   res.json({
     ok: true,
     retirements,
@@ -772,7 +776,7 @@ app.post('/api/next-season', (req, res) => {
     refused: refused || [],
     offseasonPicks: retirements.length,
     seasonNumber: seasonNumber + 1,
-    isFinal: isDynasty && seasonNumber >= DYNASTY_MAX_SEASONS,
+    isFinal: isDynasty && seasonNumber >= dynastyMax,
     seasonRecap: {
       season: seasonNumber,
       champion: playoff ? playoff.champion : null,
@@ -1924,7 +1928,7 @@ app.get('/api/resume', (req, res) => {
     replacedTeam: getState('replaced_team') || null,
     difficulty: getState('difficulty') === 'hard' ? 'hard' : 'normal',
     mode: getState('mode') === 'blind' ? 'blind' : 'open',
-    gameMode: getState('game_mode') === 'dynasty' ? 'dynasty' : 'normal',
+    gameMode: getState('game_mode') || 'normal',
     seasonNumber: parseInt(getState('season_number') || '1', 10),
     seasonLabel: sim.seasonLabel(parseInt(getState('season_number') || '1', 10)),
     rosterCount,
@@ -1953,7 +1957,7 @@ app.get('/api/result', (req, res) => {
   const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
   const gameLog = getState('season_game_log') ? JSON.parse(getState('season_game_log')) : null;
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
-  const gameMode = getState('game_mode') === 'dynasty' ? 'dynasty' : 'normal';
+  const gameMode = getState('game_mode') || 'normal';
   const seasonNumber = parseInt(getState('season_number') || '1', 10);
   const seasonHistory = getState('season_history') ? JSON.parse(getState('season_history')) : [];
   const contracts = playerContracts();
@@ -1978,7 +1982,7 @@ app.get('/api/result', (req, res) => {
     seasonNumber,
     seasonLabel: sim.seasonLabel(seasonNumber),
     seasonHistory: seasonHistory.map(h => ({ ...h, seasonLabel: h.seasonLabel || sim.seasonLabel(h.season) })),
-    dynastyMax: gameMode === 'dynasty' ? DYNASTY_MAX_SEASONS : null,
+    dynastyMax: gameMode === 'dynasty' || gameMode === 'short3' || gameMode === 'short5' ? parseInt(getState('dynasty_max') || String(DYNASTY_MAX_SEASONS), 10) : null,
   });
 });
 
