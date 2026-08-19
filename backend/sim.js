@@ -96,6 +96,25 @@ function ageDelta(age) {
   return -14 - (age - 37) * 2;
 }
 
+// ---- EPM derivation from current OVR ----
+// Instead of tracking EPM independently, derive it from the player's current effective
+// OVR. This ensures EPM always reflects actual ability: OVR 95 → EPM ~6, OVR 87 → ~2,
+// OVR 80 → ~-1.5. Clamped to [-4, 8] so fringe players don't get absurd negatives.
+// Individual variation comes from each player's base EPM offset stored in the DB.
+const EPM_SLOPE = 0.50;
+const EPM_INTERCEPT = 83;  // OVR at which EPM ≈ 0
+const EPM_MIN = -4;
+const EPM_MAX = 8;
+
+function derivedEpm(currentOvr, baseEpm) {
+  // Blend: 85% from the OVR-derived value, 15% from the player's individual base EPM.
+  // This preserves subtle individual variation while keeping EPM tightly correlated
+  // with actual ability: OVR 95 → EPM ~5.7, OVR 87 → ~2.0, OVR 80 → ~-0.4.
+  const fromOvr = (currentOvr - EPM_INTERCEPT) * EPM_SLOPE;
+  const blended = fromOvr * 0.85 + baseEpm * 0.15;
+  return +Math.max(EPM_MIN, Math.min(EPM_MAX, blended)).toFixed(1);
+}
+
 // EPM age dampening: EPM regresses toward the league median as players age.
 // The NBA median EPM is around -1.5 (most players are below average by impact metrics).
 // Young players' EPM drifts toward their potential (base EPM), older players drift
@@ -129,17 +148,24 @@ function retireAge(overall) {
 // (87 OVR at 19) grow more in absolute terms than role players (70 OVR at 19), because
 // they have more "ceiling" before the theoretical max (99).
 //   qualityScale: 60 OVR → 0.65x, 70 → 0.9x, 80 → 1.15x, 87 → 1.33x, 95 → 1.53x
-//   EPM grows proportionally to OVR growth (at ~15% of the OVR delta).
+// Decline targets min(70, peakOvr): high-peak players fall to 70, low-peak players
+// stay near their own (already low) peak — they retire at 34 anyway.
 function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
   const rawGrowth = ageDelta(currentAge) - ageDelta(baseAge);
   if (rawGrowth <= 0) {
-    // decline: no quality scaling, just the curve × devo factor
-    return Math.max(40, Math.round(baseOverall + rawGrowth));
+    // decline: target = min(70, peakOvr), gentle drift toward it
+    const peakOvr = effectiveOverall(baseOverall, baseAge, 26, devoFactor);
+    const target = Math.min(70, peakOvr);
+    const decline = rawGrowth; // negative
+    // scale decline so it reaches the target by age 38-40
+    const declineScale = Math.max(1, (peakOvr - target) / 15); // how many points to lose
+    const scaled = decline * declineScale / 6; // normalize to ~6 points of raw decline = full range
+    return Math.max(40, Math.round(baseOverall + scaled));
   }
   // growth: scale by player quality so elite players peak higher
   const qualityScale = 0.4 + (baseOverall - 50) * 0.025;
   const f = devoFactor || 1;
-  return Math.max(40, Math.round(baseOverall + rawGrowth * qualityScale * f));
+  return Math.max(40, Math.min(99, Math.round(baseOverall + rawGrowth * qualityScale * f)));
 }
 
 // EPM growth during development: grows proportionally to OVR growth.
@@ -937,5 +963,5 @@ module.exports = {
   generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall, epmAgeFactor, epmGrowthFromOvr, EPM_MEDIAN, START_SEASON, seasonLabel, retireAge,
+  ageDelta, effectiveOverall, epmAgeFactor, epmGrowthFromOvr, derivedEpm, EPM_MEDIAN, START_SEASON, seasonLabel, retireAge,
 };

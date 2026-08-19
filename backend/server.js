@@ -785,27 +785,14 @@ function applyDynasty(players) {
     if (ages[p.name] != null) {
       const baseAge = p.age;
       const baseOverall = p.overall;
-      const baseEpm = p.epm; // database value = base EPM
-      const newOverall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
-      const ovrDelta = newOverall - baseOverall;
-      p.overall = newOverall;
-      // EPM: grows with OVR during development, regresses toward median after peak
-      if (curAge < 26 && ovrDelta > 0) {
-        // growth years: EPM grows proportionally to OVR growth
-        const epmGrow = sim.epmGrowthFromOvr(ovrDelta);
-        p.epm = +(baseEpm + epmGrow).toFixed(1);
-        p.oepm = +(p.oepm + epmGrow * 0.55).toFixed(1);
-        p.depm = +(p.depm + epmGrow * 0.45).toFixed(1);
-      } else if (curAge >= 26) {
-        // post-peak: EPM regresses toward league median
-        const rate = sim.epmAgeFactor(curAge);
-        const epmDelta = Math.round((sim.EPM_MEDIAN - p.epm) * rate * 10) / 10;
-        if (epmDelta !== 0) {
-          p.epm = +(p.epm + epmDelta).toFixed(1);
-          p.oepm = +(p.oepm + epmDelta * 0.55).toFixed(1);
-          p.depm = +(p.depm + epmDelta * 0.45).toFixed(1);
-        }
-      }
+      const baseEpm = p.epm; // database value = base EPM for individual variation
+      p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
+      // EPM derived from current effective OVR, blended with individual base EPM
+      p.epm = sim.derivedEpm(p.overall, baseEpm);
+      const epmFromOvr = (p.overall - 83) * 0.50;
+      const blended = epmFromOvr * 0.85 + baseEpm * 0.15;
+      p.oepm = +Math.max(-3, Math.min(5, blended * 0.55)).toFixed(1);
+      p.depm = +Math.max(-3, Math.min(4, blended * 0.45)).toFixed(1);
       p.age = curAge;
     }
     const m = morale[p.name] || 0;
