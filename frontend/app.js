@@ -1003,9 +1003,15 @@ function renderSeason(j) {
          <button id="go-home-missed" class="ghost">${t('season.backHome')}</button>
        </div>`;
 
-  const goalResultHtml = j.goalResult ? `<div class="midseason-banner" style="border-left:3px solid ${j.goalResult.met ? 'var(--good)' : 'var(--bad)'}">
-    ${j.goalResult.met ? '✅' : '❌'} <b>赛季目标:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
-  </div>` : '';
+  const goalResultHtml = j.goal && j.goalResult
+    ? `<div class="midseason-banner" style="border-left:3px solid ${j.goalResult.met ? 'var(--good)' : 'var(--bad)'}">
+        ${j.goalResult.met ? '✅' : '❌'} <b>赛季目标:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
+      </div>`
+    : j.goal && j.goal.phase === 'playoff'
+      ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">
+          🎯 <b>赛季目标:</b> ${j.goal.description} <span class="muted">（季后赛结束后结算）</span>
+        </div>`
+      : '';
   const eventsHtml = j.events && j.events.length ? `<div class="panel"><h3>📢 赛季故事</h3>${j.events.map(e => `<p>${e.text}</p>`).join('')}</div>` : '';
 
   $('season-result').innerHTML =

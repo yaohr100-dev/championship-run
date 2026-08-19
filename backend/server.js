@@ -1258,17 +1258,19 @@ function formatUserAverages(entries, userTeam, div = 1) {
 }
 
 // Generate a season goal based on team strength relative to the league.
-// Returns { type, target, description }.
+// Returns { type, target, description, phase }.
+//   phase: 'regular' = evaluable after regular season; 'playoff' = only after playoffs.
 function generateSeasonGoal(teamStrength, leagueAvg) {
   const diff = teamStrength - leagueAvg;
-  if (diff > 5) return { type: 'champion', target: 0, description: 'Win the championship' };
-  if (diff > 2) return { type: 'conf_finals', target: 0, description: 'Reach the conference finals' };
-  if (diff > -1) return { type: 'playoffs', target: 0, description: 'Make the playoffs' };
-  if (diff > -4) return { type: 'wins', target: 42, description: 'Win at least 42 games' };
-  return { type: 'wins', target: 35, description: 'Win at least 35 games' };
+  if (diff > 5) return { type: 'champion', target: 0, description: 'Win the championship', phase: 'playoff' };
+  if (diff > 2) return { type: 'conf_finals', target: 0, description: 'Reach the conference finals', phase: 'playoff' };
+  if (diff > -1) return { type: 'playoffs', target: 0, description: 'Make the playoffs', phase: 'regular' };
+  if (diff > -4) return { type: 'wins', target: 42, description: 'Win at least 42 games', phase: 'regular' };
+  return { type: 'wins', target: 35, description: 'Win at least 35 games', phase: 'regular' };
 }
 
-// Evaluate season goal after the season ends.
+// Evaluate season goal. For playoff-phase goals, returns null if playoffs haven't
+// finished yet (caller should wait).
 function evaluateGoal(goal, result, conf) {
   if (!goal) return { met: false, reason: 'No goal set' };
   const allTeams = [...result.east, ...result.west];
@@ -1276,6 +1278,10 @@ function evaluateGoal(goal, result, conf) {
   if (!me) return { met: false, reason: 'Team not found' };
   const madePlayoffs = (conf === 'East' ? result.east : result.west).slice(0, 8).some(t => t.isUser);
   const playoffResult = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
+
+  // Playoff-phase goals: return null if playoffs haven't finished
+  if (goal.phase === 'playoff' && !playoffResult) return null;
+
   switch (goal.type) {
     case 'champion': {
       const userChamp = playoffResult && playoffResult.champion && !playoffResult.userEliminated;
@@ -1305,9 +1311,9 @@ function finishSeason(res, config, result, playerAverages) {
   const myStanding = [...result.east, ...result.west].find((t) => t.isUser);
   setState('season_record', JSON.stringify({ wins: myStanding.wins, losses: myStanding.losses, conference: conf }));
 
-  // evaluate season goal
+  // evaluate season goal (playoff-phase goals deferred until playoffs finish)
   const goal = getState('season_goal') ? JSON.parse(getState('season_goal')) : null;
-  const goalResult = evaluateGoal(goal, result, conf);
+  const goalResult = goal && goal.phase === 'playoff' ? null : evaluateGoal(goal, result, conf);
 
   // generate mid-season narrative events from accumulated stats
   const events = [];
