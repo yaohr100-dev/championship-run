@@ -256,14 +256,12 @@ function syncModeNote() {
   const mode = document.querySelector('input[name=game-mode]:checked').value;
   const blindRadio = document.querySelector('input[name=mode][value=blind]');
   const normalDiff = document.querySelector('input[name=difficulty][value=normal]');
-  const isDynastyLike = mode === 'dynasty' || mode === 'short3' || mode === 'short5';
-  if (isDynastyLike) {
+  if (mode === 'dynasty') {
     blindRadio.disabled = true;
     normalDiff.disabled = true;
     document.querySelector('input[name=mode][value=open]').checked = true;
     document.querySelector('input[name=difficulty][value=hard]').checked = true;
-    const seasons = mode === 'short3' ? 3 : mode === 'short5' ? 5 : 10;
-    $('mode-note').textContent = `强制工资帽、显示评分、最多${seasons}个赛季。`;
+    $('mode-note').textContent = '王朝模式：强制工资帽、显示评分、最多10个赛季。可随时结束王朝。';
   } else {
     blindRadio.disabled = false;
     normalDiff.disabled = false;
@@ -1131,7 +1129,7 @@ function showResult() {
     const leaderOf = (key) => (r.seasonAverages || []).slice().sort((a, b) => b[key] - a[key])[0];
 
     // dynasty progress + history
-    const isDynasty = r.gameMode === 'dynasty' || r.gameMode === 'short3' || r.gameMode === 'short5';
+    const isDynasty = r.gameMode === 'dynasty';
     const seasonHeader = isDynasty ? `${r.seasonLabel} · ${r.seasonNumber}/${r.dynastyMax}` : `${r.seasonLabel} ${t('result.season') || 'Season'}`;
     const history = (r.seasonHistory || []);
     const historyHtml = history.length ? `
@@ -1149,10 +1147,11 @@ function showResult() {
         </table></div>
       </div>` : '';
 
-    // next-season only for dynasty, and only before the cap; summary always available
+    // next-season only for dynasty, and only before the cap; end-dynasty always available
     const canNext = isDynasty && r.seasonNumber < r.dynastyMax;
     const actions = `
       ${canNext ? `<button id="next-season" class="primary">▶ ${t('result.nextSeason')}</button>` : (isDynasty ? `<p class="muted">🏆 ${t('result.dynastyComplete')} ${r.dynastyMax} ${t('result.seasons')}</p>` : '')}
+      ${isDynasty ? `<button id="end-dynasty" class="ghost">结束王朝</button>` : ''}
       <button id="print-summary" class="primary">🖨️ ${t('result.printSummary')}</button>
       <button id="back-home-final" class="ghost">${t('result.backHome')}</button>`;
 
@@ -1190,6 +1189,12 @@ function showResult() {
       } catch (e) { toast(e.message, 'error'); }
     });
     $('print-summary').addEventListener('click', () => printSummary(r));
+    $('end-dynasty')?.addEventListener('click', async () => {
+      if (confirm('确定要结束王朝吗?当前进度将转为存档。')) {
+        await api('/api/reset', { method: 'POST', body: { gameMode: 'normal' } });
+        goHome();
+      }
+    });
     $('back-home-final').addEventListener('click', () => { goHome(); });
   });
 }

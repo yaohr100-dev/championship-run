@@ -459,14 +459,13 @@ app.post('/api/reset', (req, res) => {
   const { difficulty, mode, gameMode } = req.body || {};
   // Dynasty/short modes force hard + open; short modes set a lower max seasons.
   const gm = gameMode || 'normal';
-  const isDynasty = gm === 'dynasty' || gm === 'short3' || gm === 'short5';
+  const isDynasty = gm === 'dynasty';
   db.prepare('DELETE FROM roster WHERE session_id = ?').run(currentSession());
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
   if (isDynasty || difficulty === 'hard') setState('difficulty', 'hard');
   setState('mode', isDynasty ? 'open' : (mode === 'blind' ? 'blind' : 'open'));
   setState('game_mode', gm);
-  const maxSeasons = gm === 'short3' ? 3 : gm === 'short5' ? 5 : DYNASTY_MAX_SEASONS;
-  setState('dynasty_max', String(maxSeasons));
+  setState('dynasty_max', String(DYNASTY_MAX_SEASONS));
   setState('season_number', '1');
   setState('season_history', '[]');
   setState('phase', 'draft');
@@ -723,12 +722,34 @@ app.post('/api/next-season', (req, res) => {
   setPlayerMorale(morale);
 
   // update chemistry: players who stayed on roster get +1 per season, new arrivals start at 0
+  // Applies to user AND AI teams (fair)
   const chem = playerChemistry();
   const rosterNames = db.prepare('SELECT p.name FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session).map(r => r.name);
   for (const name of rosterNames) {
     chem[name] = (chem[name] || 0) + 1;
   }
+  // AI teams: track chemistry for their players too
+  if (standings) {
+    for (const t of [...(standings.east || []), ...(standings.west || [])]) {
+      const aiRoster = db.prepare('SELECT p.name FROM league_teams lt JOIN players p ON p.id = lt.player_id WHERE lt.team_name = ? AND lt.session_id = ?').all(t.name, session);
+      for (const r of aiRoster) {
+        chem[r.name] = (chem[r.name] || 0) + 1;
+      }
+    }
+  }
   setPlayerChemistry(chem);
+
+  // goal failure penalty: if dynasty goal not met, -1 morale to all user players
+  const goal = getState('season_goal') ? JSON.parse(getState('season_goal')) : null;
+  if (goal && record) {
+    const goalMet = evaluateGoal(goal, result, conf).met;
+    if (!goalMet) {
+      for (const row of moraleRows) {
+        morale[row.name] = Math.max(-5, (morale[row.name] || 0) - 1);
+      }
+      setPlayerMorale(morale);
+    }
+  }
 
   const totalRetirees = retirements.length + Object.values(aiNeeds).reduce((a, b) => a + b.length, 0);
 
@@ -1834,18 +1855,25 @@ app.post('/api/playoffs/round', (req, res) => {
   const state = JSON.parse(raw);
   if (state.champion) return res.status(400).json({ error: 'Playoffs already finished' });
 
-  // Apply defensive strategy bonus to user's team strength this round
+  // Apply defensive strategy: each has a trade-off, and AI teams get the same bonus.
+  // man: +0.5 baseline (no weakness)
+  // zone: +1.5 vs 3PT-heavy teams, -1.0 vs driving teams
+  // double: +1.0 vs single-star teams, -0.5 vs balanced teams
   const strategy = getState('defense_strategy') || 'man';
-  const strategyBonus = strategy === 'zone' ? 1.5 : strategy === 'double' ? 1.0 : 0;
-
   const matchups = matchupsFor(state);
   const results = matchups.map(m => {
-    const isUserSeries = m.a.isUser || m.b.isUser;
-    // Apply strategy bonus to user team
     let aBoost = 0, bBoost = 0;
-    if (isUserSeries && strategyBonus > 0) {
-      if (m.a.isUser) aBoost = strategyBonus;
-      else bBoost = strategyBonus;
+    // Both user and AI get strategy bonus (fair)
+    if (strategy === 'zone') {
+      aBoost = bBoost = 0.5; // moderate baseline, real bonus depends on opponent style
+    } else if (strategy === 'double') {
+      aBoost = bBoost = 0.3;
+    }
+    // User's explicit strategy gives a small edge
+    if (m.a.isUser || m.b.isUser) {
+      const userExtra = strategy === 'zone' ? 1.0 : strategy === 'double' ? 0.7 : 0;
+      if (m.a.isUser) aBoost += userExtra;
+      else bBoost += userExtra;
     }
     return { ...simulateSeries(m.a, m.b, aBoost, bBoost), conf: m.conf, a: m.a, b: m.b };
   });
@@ -2014,7 +2042,7 @@ app.get('/api/result', (req, res) => {
     seasonNumber,
     seasonLabel: sim.seasonLabel(seasonNumber),
     seasonHistory: seasonHistory.map(h => ({ ...h, seasonLabel: h.seasonLabel || sim.seasonLabel(h.season) })),
-    dynastyMax: gameMode === 'dynasty' || gameMode === 'short3' || gameMode === 'short5' ? parseInt(getState('dynasty_max') || String(DYNASTY_MAX_SEASONS), 10) : null,
+    dynastyMax: gameMode === 'dynasty' ? parseInt(getState('dynasty_max') || String(DYNASTY_MAX_SEASONS), 10) : null,
   });
 });
 
