@@ -264,7 +264,8 @@ app.get('/api/roster', (req, res) => {
 // ---- offseason free agency (dynasty) ----
 const FA_MARKET_SIZE = 15;
 const FA_MAX_REFRESH = 3;
-const FA_SALARY_CAP = 500; // softer cap for FA (vs $400M for drafts)
+const FA_SALARY_CAP = 450; // tighter cap for FA
+const FA_SIGN_LIMIT = 3;   // max signings per offseason
 
 function faMarket() {
   return getState('fa_market') ? JSON.parse(getState('fa_market')) : [];
@@ -288,6 +289,7 @@ app.get('/api/freeagency', (req, res) => {
   let market = faMarket();
   if (!market.length) market = buildFAMarket();
   const salTotal = roster.reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0);
+  const signed = parseInt(getState('fa_signed') || '0', 10);
   // position needs
   const posCount = {};
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
@@ -300,6 +302,8 @@ app.get('/api/freeagency', (req, res) => {
     salCap: FA_SALARY_CAP,
     refreshes: faRefreshes(),
     needs,
+    signLimit: FA_SIGN_LIMIT,
+    signed,
   });
 });
 
@@ -339,16 +343,24 @@ app.post('/api/sign', (req, res) => {
   if (getState('game_mode') === 'dynasty' && newSal > FA_SALARY_CAP) {
     return res.json({ accepted: false, message: `薪资空间不足: 当前 $${curSal}M + 签约 $${sim.playerSalary(p.overall, p.epm)}M = $${newSal}M (上限 $${FA_SALARY_CAP}M)` });
   }
+  // FA signing limit per offseason
+  const signed = parseInt(getState('fa_signed') || '0', 10);
+  if (getState('game_mode') === 'dynasty' && signed >= FA_SIGN_LIMIT) {
+    return res.json({ accepted: false, message: `本赛季自由市场签约已达上限(${FA_SIGN_LIMIT}人)` });
+  }
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(session, playerId, 'bench', null);
   const ages = playerAges();
   const contracts = playerContracts();
   const devo = playerDevo();
   if (ages[p.name] == null) ages[p.name] = p.age;
   seedContract(contracts, p.name, p.session_id != null);
+  // FA signings get shorter contracts (1-2 years, not the normal 2-4)
+  if (getState('game_mode') === 'dynasty') contracts[p.name] = 1 + Math.floor(Math.random() * 2); // 1-2 years
   seedDevo(devo, p.name);
   setPlayerAges(ages);
   setPlayerContracts(contracts);
   setPlayerDevo(devo);
+  setState('fa_signed', String(signed + 1));
   res.json({ ok: true, rosterCount: count + 1, salary: newSal });
 });
 

@@ -229,13 +229,21 @@ function draftCandidates(db) {
 }
 
 // Free-agent pool: every player (real or generated) not on any team this session.
+// Quality is weighted: most FA are role players (60-75 OVR), stars rarely hit the market.
 function freeAgentPool(db) {
   const session = currentSession();
   const used = new Set([
     ...db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(session).map((r) => r.player_id),
     ...db.prepare('SELECT player_id FROM league_teams WHERE session_id = ?').all(session).map((r) => r.player_id),
   ]);
-  return poolPlayers(db).filter((p) => !used.has(p.id));
+  const all = poolPlayers(db).filter((p) => !used.has(p.id));
+  // Weight toward lower-rated players: repeat low-OVR entries so they're more likely to be sampled
+  const weighted = [];
+  for (const p of all) {
+    const copies = p.overall >= 85 ? 1 : p.overall >= 78 ? 2 : p.overall >= 72 ? 3 : 5;
+    for (let i = 0; i < copies; i++) weighted.push(p);
+  }
+  return weighted;
 }
 
 // 5 random free agents with position diversity (>= 4 of 5).

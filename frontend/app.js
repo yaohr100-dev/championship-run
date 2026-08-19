@@ -464,6 +464,7 @@ async function loadFreeAgency() {
   info.innerHTML = `
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <span><b>${t('fa.salary')}:</b> $${j.salTotal}M / $${j.salCap}M <span style="color:${salColor}">(${salPct}%)</span></span>
+      <span><b>${t('fa.signings')}:</b> ${j.signed}/${j.signLimit}</span>
       ${j.needs && j.needs.length ? `<span><b>${t('fa.needs')}:</b> ${j.needs.map(p => `<span class="pos" style="margin-left:4px">${p}</span>`).join('')}</span>` : ''}
     </div>`;
   const btn = $('fa-refresh');
