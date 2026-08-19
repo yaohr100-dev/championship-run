@@ -566,20 +566,76 @@ app.post('/api/next-season', (req, res) => {
     setState('hall_of_fame', JSON.stringify(hof));
   }
 
-  // decrement contracts league-wide; expired deals auto-renew (2-4yr). Drop retired
-  // players' contracts so the map stays in sync with the rosters.
+  // decrement contracts league-wide. Expired deals roll for re-sign willingness:
+  // factors include team record, player morale, age, and overall. If the player
+  // refuses, they leave the roster (user) or league_teams (AI) and become a free agent.
   const contracts = playerContracts();
+  const morale = playerMorale();
   const alive = new Set(Object.keys(ages));
+  const expiring = []; // {name, overall, age, morale} for players whose contract hit 0
   for (const name of Object.keys(contracts)) {
-    if (!alive.has(name)) { delete contracts[name]; continue; } // retired
+    if (!alive.has(name)) { delete contracts[name]; delete morale[name]; continue; }
     contracts[name] -= 1;
-    if (contracts[name] <= 0) contracts[name] = veteranContract();
+    if (contracts[name] <= 0) {
+      // find this player's overall from DB
+      const pRow = db.prepare('SELECT overall FROM players WHERE name = ?').get(name);
+      const ovr = pRow ? pRow.overall : 70;
+      const curAge = ages[name] || 26;
+      const m = morale[name] || 0;
+      expiring.push({ name, overall: ovr, age: curAge, morale: m });
+      // auto-renew for now; will be removed below if player refuses
+      contracts[name] = veteranContract();
+    }
   }
+
+  // Re-sign willingness: higher refusal chance for unhappy/young/star players on bad teams.
+  //   base refusal: 10%
+  //   morale < -2: +20%, morale < 0: +10%
+  //   overall >= 85: +15% (stars have leverage)
+  //   overall >= 90: +10% more (superstars can demand trades)
+  //   age >= 33: -15% (veterans prefer stability)
+  //   winPct < 0.35: +15% (bad teams lose players)
+  //   clamp: 5% - 60%
+  const refused = [];
+  for (const p of expiring) {
+    let refusal = 0.10;
+    if (p.morale <= -2) refusal += 0.20;
+    else if (p.morale < 0) refusal += 0.10;
+    if (p.overall >= 90) refusal += 0.25;
+    else if (p.overall >= 85) refusal += 0.15;
+    if (p.age >= 33) refusal -= 0.15;
+    if (winPct < 0.35) refusal += 0.15;
+    refusal = Math.max(0.05, Math.min(0.60, refusal));
+    if (Math.random() < refusal) {
+      refused.push(p);
+      // remove contract entry — player leaves
+      delete contracts[p.name];
+    }
+  }
+
+  // Remove refused players from user roster and AI league_teams
+  if (refused.length) {
+    const refusedNames = new Set(refused.map(p => p.name));
+    // user roster
+    const userRoster = db.prepare('SELECT r.player_id, p.name FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
+    for (const r of userRoster) {
+      if (refusedNames.has(r.name)) {
+        db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(r.player_id, session);
+      }
+    }
+    // AI league_teams
+    const ltRows = db.prepare('SELECT lt.player_id, p.name FROM league_teams lt JOIN players p ON p.id = lt.player_id WHERE lt.session_id = ?').all(session);
+    for (const r of ltRows) {
+      if (refusedNames.has(r.name)) {
+        db.prepare('DELETE FROM league_teams WHERE player_id = ? AND session_id = ?').run(r.player_id, session);
+      }
+    }
+  }
+
   setPlayerContracts(contracts);
 
   // settle season morale for the user's surviving players: winning lifts it, losing
   // drags it, and bench players grow dissatisfied with a smaller role.
-  const morale = playerMorale();
   const winPct = record ? record.wins / (record.wins + record.losses) : 0.5;
   const moraleRows = db.prepare('SELECT p.name, r.role FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
   for (const row of moraleRows) {
@@ -621,6 +677,7 @@ app.post('/api/next-season', (req, res) => {
     ok: true,
     retirements,
     aiRetirees: aiNeeds,
+    refused: refused || [],
     offseasonPicks: retirements.length,
     seasonNumber: seasonNumber + 1,
     isFinal: isDynasty && seasonNumber >= DYNASTY_MAX_SEASONS,
@@ -629,6 +686,7 @@ app.post('/api/next-season', (req, res) => {
       champion: playoff ? playoff.champion : null,
       mvp: seasonResult && seasonResult.awards && seasonResult.awards.mvp ? { player: seasonResult.awards.mvp.player, team: seasonResult.awards.mvp.team } : null,
       retiredLegends,
+      refused: refused || [],
     },
   });
 });

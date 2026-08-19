@@ -180,6 +180,8 @@ const LANG = {
     'recap.mvp': '🌟 Regular-season MVP',
     'recap.retired': 'Retired this offseason',
     'recap.noRetirements': 'No retirements this offseason.',
+    'recap.refused': 'Refused to re-sign',
+    'recap.refusedDesc': 'These players\' contracts expired and they chose to leave. They are now free agents.',
 
     // ---- Summary ----
     'summary.dynasty': 'Dynasty mode',
@@ -405,6 +407,8 @@ const LANG = {
     'recap.mvp': '🌟 常规赛MVP',
     'recap.retired': '本休赛期退役球员',
     'recap.noRetirements': '本休赛期无球员退役。',
+    'recap.refused': '拒绝续约',
+    'recap.refusedDesc': '这些球员合同到期后选择离开,现已成为自由球员。',
     'summary.dynasty': '王朝模式',
     'summary.seasonSummary': '赛季总结',
     'summary.seasons': '个赛季',

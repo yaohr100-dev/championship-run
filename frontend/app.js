@@ -546,7 +546,10 @@ function renderRecap(recap) {
   const legends = recap.retiredLegends && recap.retiredLegends.length
     ? `<div class="panel"><b>${t('recap.retired')}:</b><div class="chip-list">${recap.retiredLegends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team})</span></span>`).join('')}</div></div>`
     : `<p class="muted">${t('recap.noRetirements')}</p>`;
-  box.innerHTML = champ + mvp + legends;
+  const refusals = recap.refused && recap.refused.length
+    ? `<div class="panel" style="border-color:var(--bad)"><b>${t('recap.refused')}:</b><div class="chip-list">${recap.refused.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position || ''}</span> <span class="muted">(OVR ${p.overall})</span></span>`).join('')}</div><p class="muted" style="margin-top:6px">${t('recap.refusedDesc')}</p></div>`
+    : '';
+  box.innerHTML = champ + mvp + legends + refusals;
 }
 
 $('recap-continue').addEventListener('click', async () => {
