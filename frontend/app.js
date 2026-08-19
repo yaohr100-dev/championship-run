@@ -997,7 +997,11 @@ function renderSeason(j) {
 
   const playoffBtn = j.madePlayoffs
     ? `<button id="go-playoffs" class="primary" style="margin-top:16px">${t('season.toPlayoffs')}</button>`
-    : `<p class="muted" style="margin-top:16px">${t('season.missedPlayoffs')} <button id="go-home-missed" class="ghost">${t('season.backHome')}</button></p>`;
+    : `<p class="muted" style="margin-top:16px">${t('season.missedPlayoffs')}</p>
+       <div style="margin-top:12px;display:flex;gap:10px;justify-content:center">
+         <button id="go-result-missed" class="primary">查看结果</button>
+         <button id="go-home-missed" class="ghost">${t('season.backHome')}</button>
+       </div>`;
 
   const goalResultHtml = j.goalResult ? `<div class="midseason-banner" style="border-left:3px solid ${j.goalResult.met ? 'var(--good)' : 'var(--bad)'}">
     ${j.goalResult.met ? '✅' : '❌'} <b>赛季目标:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
@@ -1012,6 +1016,7 @@ function renderSeason(j) {
     standingsHtml(j.east, j.west) + avgTable + playoffBtn;
 
   $('go-playoffs')?.addEventListener('click', () => startPlayoffs());
+  $('go-result-missed')?.addEventListener('click', () => showResult());
   $('go-home-missed')?.addEventListener('click', () => { goHome(); });
 }
 
