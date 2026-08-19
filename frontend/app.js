@@ -1029,13 +1029,13 @@ function renderSeason(j) {
 // ---------- Playoffs ----------
 async function startPlayoffs() {
   show('playoffs');
-  $('playoffs-body').innerHTML = `<p class="muted">${t('playoffs.settingUp')}</p>`;
+  $('playoffs-body').innerHTML = `<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div>`;
   try {
     const j = await api('/api/playoffs/start', { method: 'POST' });
     state.playoffRound = j.round;
     renderMatchups(j.matchups, j.round);
   } catch (e) {
-    $('playoffs-body').innerHTML = `<p class="muted">${e.message}</p><button id="back-home" class="ghost">${t('season.backHome')}</button>`;
+    $('playoffs-body').innerHTML = `<p class="bad">${e.message}</p><button id="back-home" class="ghost">${t('season.backHome')}</button>`;
     $('back-home').addEventListener('click', () => { goHome(); });
   }
 }
@@ -1088,12 +1088,24 @@ function renderMatchups(matchups, round) {
       </div>`).join('')}</div>
     <button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${round}</button>`;
 
-  $('simulate-round').addEventListener('click', async () => {
-    const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
-    await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
-    const j = await api('/api/playoffs/round', { method: 'POST' });
-    renderRoundResults(j);
-  });
+  const btn = document.getElementById('simulate-round');
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = '模拟中…';
+      try {
+        const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
+        await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
+        const j = await api('/api/playoffs/round', { method: 'POST' });
+        renderRoundResults(j);
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = `${t('playoffs.simulateRound')} ${state.playoffRound || 1}`;
+        toast(e.message, 'error');
+      }
+    });
+  }
 }
 
 function renderRoundResults(j) {
@@ -1133,8 +1145,18 @@ function renderRoundResults(j) {
   $('playoffs-body').innerHTML = html;
 
   $('next-round')?.addEventListener('click', async () => {
-    const r = await api('/api/playoffs/round', { method: 'POST' });
-    renderRoundResults(r);
+    const btn = document.getElementById('next-round');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '模拟中…';
+    try {
+      const r = await api('/api/playoffs/round', { method: 'POST' });
+      renderRoundResults(r);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = `${t('playoffs.simulateRound')} ${state.playoffRound + 1}`;
+      toast(e.message, 'error');
+    }
   });
   $('to-result')?.addEventListener('click', () => showResult(j));
 }
