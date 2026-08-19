@@ -71,12 +71,38 @@ function moraleFactor(streak) {
 }
 
 // Dynasty progression: how far a player's overall is from their peak at a given age.
-// Young players rise (+ until 26), prime holds (26-29), then decline accelerates past 30.
+// Growth: rapid 20-23 (+2/yr), slowing 24-25 (+1/yr).
+// Prime: 26-28 (3-year peak window).
+// Decline: gentle 29-31 (-1/yr), moderate 32-34 (-2/yr), steep 35-36 (-3/yr), brutal 37+ (-4/yr).
+// This gives realistic career arcs: LeBron at 40 drops ~16 points from peak, not just 8.
 function ageDelta(age) {
-  const d = [ [-100, 20, -6], [21, 21, -5], [22, 22, -4], [23, 23, -3], [24, 24, -2], [25, 25, -1],
-    [26, 29, 0], [30, 30, -1], [31, 31, -2], [32, 32, -3], [33, 33, -4], [34, 34, -5], [35, 35, -6], [36, 200, -8] ];
-  for (const [lo, hi, delta] of d) if (age >= lo && age <= hi) return delta;
-  return 0;
+  if (age <= 20) return -6;
+  if (age <= 21) return -5;
+  if (age <= 22) return -4;
+  if (age <= 23) return -3;
+  if (age <= 24) return -2;
+  if (age <= 25) return -1;
+  if (age <= 28) return 0;    // peak: 26-28
+  if (age <= 29) return -1;
+  if (age <= 30) return -2;
+  if (age <= 31) return -3;
+  if (age <= 32) return -4;
+  if (age <= 33) return -5;
+  if (age <= 34) return -7;
+  if (age <= 35) return -9;
+  if (age <= 36) return -11;
+  if (age <= 37) return -14;
+  return -17; // 38+: nearly washed
+}
+
+// EPM age dampening: younger = EPM grows slower than OVR (learning curve),
+// older = EPM declines slightly faster than OVR (impact drops when body fails).
+// Returns a multiplier on the overall delta to get the EPM delta.
+function epmAgeFactor(age) {
+  if (age <= 24) return 0.4;   // young: slow EPM growth
+  if (age <= 28) return 0.5;   // prime: moderate
+  if (age <= 32) return 0.6;   // early decline: EPM starts catching down
+  return 0.7;                   // late decline: EPM drops faster (impact fades with body)
 }
 
 // Retirement age by player caliber: a star's body holds up longer than a role
@@ -891,5 +917,5 @@ module.exports = {
   generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall, START_SEASON, seasonLabel, retireAge,
+  ageDelta, effectiveOverall, epmAgeFactor, START_SEASON, seasonLabel, retireAge,
 };

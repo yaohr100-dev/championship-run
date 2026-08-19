@@ -773,9 +773,8 @@ function seedDevo(devo, name) {
 
 // Overwrite overall + age on a team's roster rows with their dynasty-adjusted values,
 // plus a season-morale nudge (±3) and a fallback potential for new players.
-// EPM age curve: same direction as overall but gentler (experience partially offsets
-// physical decline). Dampened by 0.5x so a player who loses 6 OVR loses ~3 EPM.
-const EPM_AGE_DAMPEN = 0.5;
+// EPM age curve: uses epmAgeFactor from sim.js — younger players grow EPM slowly
+// (learning curve), older players lose EPM faster (impact fades with body).
 
 function applyDynasty(players) {
   const ages = playerAges();
@@ -787,10 +786,10 @@ function applyDynasty(players) {
       const baseAge = p.age;
       const baseOverall = p.overall;
       p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
-      // EPM follows the same age direction, dampened: young players' impact grows,
-      // veterans' impact declines, but slower than physical tools.
+      // EPM follows overall direction, dampened by age-dependent factor
       const overallDelta = p.overall - baseOverall;
-      const epmDelta = Math.round(overallDelta * EPM_AGE_DAMPEN * 10) / 10;
+      const dampen = sim.epmAgeFactor(curAge);
+      const epmDelta = Math.round(overallDelta * dampen * 10) / 10;
       p.epm = +(p.epm + epmDelta).toFixed(1);
       p.oepm = +(p.oepm + epmDelta * 0.55).toFixed(1);
       p.depm = +(p.depm + epmDelta * 0.45).toFixed(1);
