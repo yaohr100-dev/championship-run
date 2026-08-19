@@ -134,7 +134,7 @@ function retireAge(overall) {
 function effectiveOverall(baseOverall, baseAge, currentAge, devoFactor) {
   const rawDelta = ageDelta(currentAge) - ageDelta(baseAge);
   if (rawDelta > 0) {
-    const qualityScale = 0.5 + (baseOverall - 60) * 0.02;
+    const qualityScale = 0.65 + (baseOverall - 60) * 0.025;
     const f = devoFactor || 1;
     return Math.max(40, Math.min(99, Math.round(baseOverall + rawDelta * qualityScale * f)));
   }
