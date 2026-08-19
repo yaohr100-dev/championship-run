@@ -774,7 +774,9 @@ app.post('/api/next-season', (req, res) => {
   // goal failure penalty: if dynasty goal not met, -1 morale to all user players
   const goal = getState('season_goal') ? JSON.parse(getState('season_goal')) : null;
   if (goal && record) {
-    const goalMet = evaluateGoal(goal, result, conf).met;
+    const seasonRes = getState('season_result') ? JSON.parse(getState('season_result')) : null;
+    const conf = getState('conference') || 'West';
+    const goalMet = seasonRes ? evaluateGoal(goal, seasonRes, conf).met : false;
     if (!goalMet) {
       for (const row of moraleRows) {
         morale[row.name] = Math.max(-5, (morale[row.name] || 0) - 1);
@@ -1312,7 +1314,7 @@ function finishSeason(res, config, result, playerAverages) {
   // team chemistry: if won 50+ games
   if (myStanding.wins >= 50) events.push({ type: 'chemistry', text: `The team clicked — ${myStanding.wins} wins! Chemistry was off the charts.` });
   // struggle: if lost 50+ games
-  if ((SEASON_GAMES - myStanding.wins) >= 50) events.push({ type: 'struggle', text: `A brutal ${myStanding.wins}-${SEASON_GAMES - myStanding.wins} season. The rebuild is on.` });
+  if ((82 - myStanding.wins) >= 50) events.push({ type: 'struggle', text: `A brutal ${myStanding.wins}-${82 - myStanding.wins} season. The rebuild is on.` });
   setState('season_game_log', JSON.stringify(myStanding.gameLog || []));
   setState('season_averages', JSON.stringify(playerAverages));
   setState('season_standings', JSON.stringify({
