@@ -773,8 +773,8 @@ function seedDevo(devo, name) {
 
 // Overwrite overall + age on a team's roster rows with their dynasty-adjusted values,
 // plus a season-morale nudge (±3) and a fallback potential for new players.
-// EPM age curve: EPM regresses toward 0 as players age (mean reversion).
-// Uses epmAgeFactor from sim.js — returns a fraction of (0 - currentEpm) to apply.
+// EPM age curve: EPM regresses toward the league median (EPM_MEDIAN) as players age.
+// Uses epmAgeFactor from sim.js — returns a fraction of (median - currentEpm) to apply.
 
 function applyDynasty(players) {
   const ages = playerAges();
@@ -786,9 +786,9 @@ function applyDynasty(players) {
       const baseAge = p.age;
       const baseOverall = p.overall;
       p.overall = sim.effectiveOverall(baseOverall, baseAge, curAge, devo[p.name] || 1);
-      // EPM mean reversion: drifts toward 0, rate depends on current age
+      // EPM mean reversion toward league median, rate depends on current age
       const rate = sim.epmAgeFactor(curAge);
-      const epmDelta = Math.round((0 - p.epm) * rate * 10) / 10;
+      const epmDelta = Math.round((sim.EPM_MEDIAN - p.epm) * rate * 10) / 10;
       if (epmDelta !== 0) {
         p.epm = +(p.epm + epmDelta).toFixed(1);
         p.oepm = +(p.oepm + epmDelta * 0.55).toFixed(1);

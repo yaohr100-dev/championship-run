@@ -95,16 +95,20 @@ function ageDelta(age) {
   return -17; // 38+: nearly washed
 }
 
-// EPM age dampening: EPM regresses toward 0 as players age (mean reversion).
-// Young players' EPM grows slowly (learning curve), prime players hold steady,
-// older players' EPM erodes toward 0 — but never goes wildly negative.
-// Returns the fraction of (0 - currentEpm) to apply each year.
+// EPM age dampening: EPM regresses toward the league median as players age.
+// The NBA median EPM is around -1.5 (most players are below average by impact metrics).
+// Young players' EPM drifts toward their potential (base EPM), older players drift
+// toward the median — so role players (-1) stay around -1 to -2, not magically improve.
+const EPM_MEDIAN = -1.5;
+
+// Returns the fraction of (target - currentEpm) to apply each year.
+// Target is the median for declining players, or base EPM for growing players.
 function epmAgeFactor(age) {
   if (age <= 24) return 0.08;   // young: slow EPM growth toward potential
   if (age <= 28) return 0.02;   // prime: almost no drift
   if (age <= 32) return 0.06;   // early decline: gentle erosion
   if (age <= 35) return 0.12;   // mid decline: noticeable erosion
-  return 0.18;                   // late decline: EPM fades toward 0
+  return 0.18;                   // late decline: EPM fades toward median
 }
 
 // Retirement age by player caliber: a star's body holds up longer than a role
@@ -919,5 +923,5 @@ module.exports = {
   generateRookie, generateDraftClass,
   teamForm, shuffle, gameEPM, gameDEPM, POSITIONS, ROSTER_SIZE, STARTER_COUNT, REROLLS_PER_RUN, NBA_TEAMS,
   HARD_MODE_BUDGET, HARD_AI_BONUS, HOME_ADV, HOME_ADV_PO, AI_TEAM_BAND,
-  ageDelta, effectiveOverall, epmAgeFactor, START_SEASON, seasonLabel, retireAge,
+  ageDelta, effectiveOverall, epmAgeFactor, EPM_MEDIAN, START_SEASON, seasonLabel, retireAge,
 };
