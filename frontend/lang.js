@@ -54,6 +54,7 @@ const LANG = {
     'draft.title': 'Draft',
     'draft.rookieTitle': 'Rookie Draft',
     'draft.desc': 'Pick 1 of 5 players each round, until you have 10.',
+    'draft.descRookie': 'Pick 1 rookie to add to your roster.',
     'draft.reroll': 'Re-roll',
     'draft.picked': 'picked',
     'draft.need': 'Need',
@@ -62,6 +63,7 @@ const LANG = {
     'draft.yourPick': 'You pick at',
     'draft.picksSoFar': 'Draft so far',
     'draft.pass': 'Pass (skip pick)',
+    'draft.rosterFull': 'Roster full — release a player first',
 
     // ---- Free Agency ----
     'fa.title': 'Offseason Free Agency',
@@ -88,6 +90,9 @@ const LANG = {
     'season.simulate': 'Simulate 82-Game Season',
     'season.midseason': 'Mid-season break',
     'season.midseasonHelp': 'You can now adjust your lineup, make trades, then simulate the second half.',
+    'season.goal': 'Season Goal',
+    'season.goalDeferred': 'Evaluated after playoffs',
+    'season.events': 'Season Stories',
     'season.adjustLineup': '🎯 Adjust lineup',
     'season.tradeWindow': '🔄 Trade window',
     'season.simulateSecond': '▶ Simulate 2nd half',
@@ -160,6 +165,7 @@ const LANG = {
     'result.seasons': 'seasons played.',
     'result.printSummary': '🖨️ Save / Print Summary',
     'result.backHome': 'Back to Home',
+    'result.endDynastyConfirm': 'End dynasty? Your progress will be saved as an archive.',
     'result.dynastyHistory': 'Dynasty History',
 
     // ---- History ----
@@ -182,6 +188,7 @@ const LANG = {
     'recap.noRetirements': 'No retirements this offseason.',
     'recap.refused': 'Refused to re-sign',
     'recap.refusedDesc': 'These players\' contracts expired and they chose to leave. They are now free agents.',
+    'recap.news': 'League News',
 
     // ---- Summary ----
     'summary.dynasty': 'Dynasty mode',
@@ -252,6 +259,8 @@ const LANG = {
     'misc.good': 'win',
     'misc.bad': 'loss',
     'misc.savesNone': 'No players drafted yet.',
+    'misc.simulating': 'Simulating…',
+    'misc.you': 'you',
   },
 
   zh: {
@@ -297,6 +306,7 @@ const LANG = {
     'draft.title': '选秀',
     'draft.rookieTitle': '新秀选秀',
     'draft.desc': '每轮从5名球员中选1人,直到满10人。',
+    'draft.descRookie': '选择1名新秀加入阵容。',
     'draft.reroll': '重新抽取',
     'draft.picked': '已选',
     'draft.need': '需要',
@@ -305,6 +315,7 @@ const LANG = {
     'draft.yourPick': '你的选秀顺位',
     'draft.picksSoFar': '选秀进行中',
     'draft.pass': '弃权(跳过选秀)',
+    'draft.rosterFull': '阵容已满，请先释放一名球员再选秀',
     'fa.title': '休赛期自由市场',
     'fa.desc': '释放球员腾出名额,然后签约自由球员。或者直接前往阵容设置。',
     'fa.done': '完成 — 前往阵容设置',
@@ -325,6 +336,9 @@ const LANG = {
     'season.simulate': '模拟82场赛季',
     'season.midseason': '赛季中段休息',
     'season.midseasonHelp': '你现在可以调整阵容、进行交易,然后模拟下半赛季。',
+    'season.goal': '赛季目标',
+    'season.goalDeferred': '季后赛结束后结算',
+    'season.events': '赛季故事',
     'season.adjustLineup': '🎯 调整阵容',
     'season.tradeWindow': '🔄 交易窗口',
     'season.simulateSecond': '▶ 模拟下半赛季',
@@ -391,6 +405,7 @@ const LANG = {
     'result.seasons': '个赛季。',
     'result.printSummary': '🖨️ 保存/打印摘要',
     'result.backHome': '返回首页',
+    'result.endDynastyConfirm': '确定要结束王朝吗？当前进度将转为存档。',
     'result.dynastyHistory': '王朝历史',
     'history.season': '赛季',
     'history.record': '战绩',
@@ -407,6 +422,9 @@ const LANG = {
     'recap.mvp': '🌟 常规赛MVP',
     'recap.retired': '本休赛期退役球员',
     'recap.noRetirements': '本休赛期无球员退役。',
+    'recap.refused': '拒绝续约',
+    'recap.refusedDesc': '这些球员合同到期后选择离开,现已成为自由球员。',
+    'recap.news': '联盟新闻',
     'recap.refused': '拒绝续约',
     'recap.refusedDesc': '这些球员合同到期后选择离开,现已成为自由球员。',
     'summary.dynasty': '王朝模式',
@@ -465,6 +483,8 @@ const LANG = {
     'misc.good': '连胜',
     'misc.bad': '连败',
     'misc.savesNone': '暂无已选球员。',
+    'misc.simulating': '模拟中…',
+    'misc.you': '你',
   },
 };
 

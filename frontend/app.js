@@ -334,9 +334,9 @@ function resumePlayoffs(p) {
   const matchups = p.matchups.map((m) => `
     <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
       <div class="series-teams">
-        <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (you)' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
+        <details><summary>${m.a.isUser ? `<span class="user-team">★ ${m.a.name}</span> (${t('misc.you')})` : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
         <span class="vs">vs</span>
-        <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (you)' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
+        <details><summary>${m.b.isUser ? `<span class="user-team">★ ${m.b.name}</span> (${t('misc.you')})` : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
       </div>
     </div>`).join('');
   let html = `<h3>Playoff Bracket</h3>${renderBracket(p.rounds, p.nextMatchups)}`;
@@ -388,7 +388,7 @@ async function loadDraft() {
     $('draft-title').firstChild.textContent = t('draft.rookieTitle') + ' ';
     const pos = j.userPosition ? `${t('draft.yourPick')} #${j.userPosition} · ` : '';
     const canPass = j.canPass ? ` · <button id="draft-pass" class="ghost" style="font-size:12px;padding:4px 10px">${t('draft.pass')}</button>` : '';
-    $('draft-desc').innerHTML = `${pos}${t('draft.desc')}${canPass}`;
+    $('draft-desc').innerHTML = `${pos}${t('draft.descRookie')}${canPass}`;
     if (j.canPass) {
       $('draft-pass')?.addEventListener('click', async () => {
         await api('/api/draft/pass', { method: 'POST' });
@@ -454,7 +454,7 @@ function renderCandidates(candidates) {
         if (r.error) {
           toast(r.error, 'error');
           if (r.error.includes('Roster full')) {
-            toast('请先释放一名球员再选秀', 'info');
+            toast(t('draft.rosterFull'), 'info');
           }
           return;
         }
@@ -557,7 +557,7 @@ function renderRecap(recap) {
     ? `<div class="panel" style="border-color:var(--bad)"><b>${t('recap.refused')}:</b><div class="chip-list">${recap.refused.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position || ''}</span> <span class="muted">(OVR ${p.overall})</span></span>`).join('')}</div><p class="muted" style="margin-top:6px">${t('recap.refusedDesc')}</p></div>`
     : '';
   const news = recap.news && recap.news.length
-    ? `<div class="panel"><b>📰 联盟新闻</b><ul style="margin:8px 0 0 18px">${recap.news.map((n) => `<li style="margin-bottom:4px">${n}</li>`).join('')}</ul></div>`
+    ? `<div class="panel"><b>📰 ${t('recap.news')}</b><ul style="margin:8px 0 0 18px">${recap.news.map((n) => `<li style="margin-bottom:4px">${n}</li>`).join('')}</ul></div>`
     : '';
   box.innerHTML = champ + mvp + news + legends + refusals;
 }
@@ -708,7 +708,7 @@ $('confirm-lineup').addEventListener('click', async () => {
 $('simulate-season').addEventListener('click', async () => {
   if ($('simulate-season').disabled) return;
   $('simulate-season').disabled = true;
-  $('simulate-season').textContent = '模拟中…';
+  $('simulate-season').textContent = t('misc.simulating');
   $('season-result').innerHTML = `<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div>`;
   try {
     const j = await api('/api/season/start', { method: 'POST' });
@@ -731,13 +731,13 @@ function awardsHtml(awards) {
       <div class="award${a.isUser ? ' me' : ''}">
         <span class="award-label">${label}</span>
         <span class="award-name">${a.player}</span>
-        <span class="award-team muted">${a.team}${a.isUser ? ' (你)' : ''}</span>
+        <span class="award-team muted">${a.team}${a.isUser ? ` (${t('misc.you')})` : ''}</span>
       </div>` : '');
   const firstTeam = (awards.firstTeam || []).filter(Boolean);
   const firstTeamHtml = firstTeam.length ? `
       <div class="award award-ft${firstTeam.some((a) => a.isUser) ? ' me' : ''}">
         <span class="award-label">${t('season.allNba')}</span>
-        ${firstTeam.map((a) => `<div class="ft-item"><span class="ft-pos">${a.position}</span> <span class="award-name">${a.player}</span> <span class="award-team muted">${a.team}${a.isUser ? ' (你)' : ''}</span></div>`).join('')}
+        ${firstTeam.map((a) => `<div class="ft-item"><span class="ft-pos">${a.position}</span> <span class="award-name">${a.player}</span> <span class="award-team muted">${a.team}${a.isUser ? ` (${t('misc.you')})` : ''}</span></div>`).join('')}
       </div>` : '';
   return `
     <h3>${t('season.awards')}</h3>
@@ -870,7 +870,7 @@ function renderShop(myRoster) {
   btn.className = 'primary';
   btn.addEventListener('click', async () => {
     const ids = myList.checked();
-    if (!ids.length) { msg.textContent = '请先选择1-3名球员。'; msg.className = 'bad trade-msg'; return; }
+    if (!ids.length) { msg.textContent = t('trade.needSame'); msg.className = 'bad trade-msg'; return; }
     try {
       const j = await api('/api/trade/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ myPlayerIds: ids }) });
       const blind = isBlind();
@@ -939,7 +939,7 @@ function standingsHtml(east, west) {
         <tr${t.isUser ? ' class="me"' : ''}>
           <td>${i + 1}</td>
           <td>
-            <details><summary>${t.name}${t.isUser ? ' (你)' : ''}</summary>
+            <details><summary>${t.name}${t.isUser ? ` (${t('misc.you')})` : ''}</summary>
               <div class="roster">${teamRosterHtml(t)}</div>
             </details>
           </td>
@@ -957,7 +957,7 @@ function renderMidSeason(j) {
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table></div>`;
-  const goalHtml = j.goal ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">🎯 <b>赛季目标:</b> ${j.goal.description}</div>` : '';
+  const goalHtml = j.goal ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">🎯 <b>${t('season.goal')}:</b> ${j.goal.description}</div>` : '';
   $('season-result').innerHTML = `
     <div class="midseason-banner">🏀 ${t('season.midseason')} — <b>${j.wins}-${j.losses}</b> ${t('season.afterGames')} ${j.games} ${t('misc.games')}</div>
     ${goalHtml}
@@ -976,7 +976,7 @@ function renderMidSeason(j) {
   $('finish-season')?.addEventListener('click', async () => {
     if ($('finish-season').disabled) return;
     $('finish-season').disabled = true;
-    $('finish-season').textContent = '模拟中…';
+    $('finish-season').textContent = t('misc.simulating');
     $('season-result').innerHTML = `<div class="skeleton skeleton-block"></div><div class="skeleton skeleton-line w-80"></div>`;
     try {
       const j2 = await api('/api/season/finish', { method: 'POST' });
@@ -1012,14 +1012,14 @@ function renderSeason(j) {
 
   const goalResultHtml = j.goal && j.goalResult
     ? `<div class="midseason-banner" style="border-left:3px solid ${j.goalResult.met ? 'var(--good)' : 'var(--bad)'}">
-        ${j.goalResult.met ? '✅' : '❌'} <b>赛季目标:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
+        ${j.goalResult.met ? '✅' : '❌'} <b>${t('season.goal')}:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
       </div>`
     : j.goal && j.goal.phase === 'playoff'
       ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">
-          🎯 <b>赛季目标:</b> ${j.goal.description} <span class="muted">（季后赛结束后结算）</span>
+          🎯 <b>${t('season.goal')}:</b> ${j.goal.description} <span class="muted">（${t('season.goalDeferred')}）</span>
         </div>`
       : '';
-  const eventsHtml = j.events && j.events.length ? `<div class="panel"><h3>📢 赛季故事</h3>${j.events.map(e => `<p>${e.text}</p>`).join('')}</div>` : '';
+  const eventsHtml = j.events && j.events.length ? `<div class="panel"><h3>📢 ${t('season.events')}</h3>${j.events.map(e => `<p>${e.text}</p>`).join('')}</div>` : '';
 
   $('season-result').innerHTML =
     (blind ? `<p class="muted">${j.teamName} (${j.conference})</p>` : `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>`) +
@@ -1088,9 +1088,9 @@ function renderMatchups(matchups, round) {
     <div class="bracket">${matchups.map((m) => `
       <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
         <div class="series-teams">
-          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (你)' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
+          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (${t("misc.you")})' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
           <span class="vs">vs</span>
-          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (你)' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
+          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (${t("misc.you")})' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
         </div>
       </div>`).join('')}</div>
     <button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${round}</button>`;
@@ -1100,7 +1100,7 @@ function renderMatchups(matchups, round) {
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
       btn.disabled = true;
-      btn.textContent = '模拟中…';
+      btn.textContent = t('misc.simulating');
       try {
         const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
         await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
@@ -1155,7 +1155,7 @@ function renderRoundResults(j) {
     const btn = document.getElementById('next-round');
     if (btn.disabled) return;
     btn.disabled = true;
-    btn.textContent = '模拟中…';
+    btn.textContent = t('misc.simulating');
     try {
       const r = await api('/api/playoffs/round', { method: 'POST' });
       renderRoundResults(r);
@@ -1203,7 +1203,7 @@ function showResult() {
           <tbody>${history.map((h) => `<tr>
             <td class="num">${h.seasonLabel || h.season}</td>
             <td>${h.wins}-${h.losses}</td>
-            <td>${h.champion ? (h.userChampion ? `<b>${h.champion}</b> (你)` : h.champion) : '—'}</td>
+            <td>${h.champion ? (h.userChampion ? `<b>${h.champion}</b> (${t('misc.you')})` : h.champion) : '—'}</td>
             <td>${h.mvp || '—'}</td>
             <td>${h.result === 'champion' ? t('history.championLabel') : h.result === 'missed_playoffs' ? t('history.missedPlayoffs') : h.result.startsWith('eliminated') ? `${t('history.eliminated')}${h.result.split('_r')[1]}` : t('history.playoffs')}</td>
           </tr>`).join('')}</tbody>
@@ -1253,7 +1253,7 @@ function showResult() {
     });
     $('print-summary').addEventListener('click', () => printSummary(r));
     $('end-dynasty')?.addEventListener('click', async () => {
-      if (confirm('确定要结束王朝吗?当前进度将转为存档。')) {
+      if (confirm(t('result.endDynastyConfirm'))) {
         await api('/api/reset', { method: 'POST', body: { gameMode: 'normal' } });
         goHome();
       }
