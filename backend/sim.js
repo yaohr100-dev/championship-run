@@ -328,20 +328,20 @@ function generateRookieName(db) {
   return `${FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)]} ${LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)]} Jr.`;
 }
 
-// Realistic rookie overall: a few franchise prospects, a lottery tier, a first-round
-// tier, then a long tail of second-round/undrafted talent.
+// Realistic rookie overall: franchise prospects, lottery tier, first-round, second-round.
 function draftOverall() {
   const r = Math.random();
-  if (r < 0.05) return 80 + Math.floor(Math.random() * 7); // 80-86 franchise
-  if (r < 0.25) return 74 + Math.floor(Math.random() * 6); // 74-79 lottery
-  if (r < 0.60) return 68 + Math.floor(Math.random() * 6); // 68-73 first round
-  return 58 + Math.floor(Math.random() * 10);              // 58-67 second round / undrafted
+  if (r < 0.15) return 80 + Math.floor(Math.random() * 7); // 80-86 franchise (15%)
+  if (r < 0.35) return 74 + Math.floor(Math.random() * 6); // 74-79 lottery (20%)
+  if (r < 0.60) return 68 + Math.floor(Math.random() * 6); // 68-73 first round (25%)
+  return 58 + Math.floor(Math.random() * 10);              // 58-67 second round / undrafted (40%)
 }
 
 const r2 = (x) => Math.round(x * 100) / 100;
 
 // Position-aware rookie stat estimates, mirrors seed.js estimateStats but nudges the
 // big-man / point-guard tendencies so a C rebounds and a PG assists.
+// EPM uses derivedEpm with baseEpm=0 (no individual history yet).
 function rookieStats(overall, position) {
   const x = overall - 55;
   const mod = {
@@ -351,7 +351,7 @@ function rookieStats(overall, position) {
     PF: { trb: 1.0, ast: -0.5, blk: 0.3 },
     C:  { trb: 1.8, ast: -1.2, blk: 0.6 },
   }[position] || { trb: 0, ast: 0, blk: 0 };
-  const epm = r2(0.4 * (overall - 70));
+  const epm = derivedEpm(overall, 0); // baseEpm=0 for rookies
   return {
     pts: r2(0.7 * x),
     trb: r2(Math.max(0.5, 0.22 * x + mod.trb)),
