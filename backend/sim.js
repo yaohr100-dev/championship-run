@@ -354,21 +354,27 @@ function rookieStats(overall, position) {
     C:  { trb: 1.8, ast: -1.2, blk: 0.6 },
   }[position] || { trb: 0, ast: 0, blk: 0 };
 
-  // random "play style": offensive-leaning vs defensive-leaning, scorer vs facilitator
-  const offBias = 0.3 + Math.random() * 0.4; // 0.30-0.70, higher = more offensive
+  // random "play style": wide range so EPM split varies a lot
+  // 0.15 = pure defender, 0.85 = pure scorer, 0.50 = balanced
+  const offBias = 0.15 + Math.random() * 0.70;
 
-  // rookie baseEpm: derived from overall, then add noise so even same-OVR rookies
-  // have different EPM profiles (some are impact players, some are empty stats)
-  const noisyBaseEpm = derivedEpm(overall, 0) + (Math.random() - 0.5) * 1.5; // ±0.75 noise
-  const oepm = r2(noisyBaseEpm * (0.4 + offBias * 0.6));
+  // rookie baseEpm: derived from overall, then add noise
+  const noisyBaseEpm = derivedEpm(overall, 0) + (Math.random() - 0.5) * 1.5;
+  const oepm = r2(noisyBaseEpm * (0.3 + offBias * 0.7));
   const depm = r2(noisyBaseEpm - oepm);
+
+  // defensive EPM boosts STL/BLK, weighted by position
+  // high-depm PG/SG → more steals; high-depm PF/C → more blocks
+  const defBoost = Math.max(0, depm) * 0.15; // depm +1.0 → +0.15 to STL/BLK base
+  const stlBoost = position === 'PG' || position === 'SG' ? defBoost * 1.5 : defBoost * 0.7;
+  const blkBoost = position === 'PF' || position === 'C' ? defBoost * 2.0 : defBoost * 0.4;
 
   return {
     pts: r2(Math.max(0.5, 0.7 * x * rand())),
     trb: r2(Math.max(0.3, (0.22 * x + mod.trb) * rand())),
     ast: r2(Math.max(0.2, (0.18 * x + mod.ast) * rand())),
-    stl: r2(Math.max(0.1, 0.035 * x * rand())),
-    blk: r2(Math.max(0.05, (0.03 * x + mod.blk) * rand())),
+    stl: r2(Math.max(0.1, (0.035 * x + stlBoost) * rand())),
+    blk: r2(Math.max(0.05, (0.03 * x + mod.blk + blkBoost) * rand())),
     fgPct: r2(0.40 + (overall - 60) * 0.0045 + (Math.random() - 0.5) * 0.04),
     threePct: r2(0.28 + (overall - 60) * 0.0035 + (Math.random() - 0.5) * 0.06),
     ftPct: r2(0.62 + (overall - 60) * 0.004 + (Math.random() - 0.5) * 0.08),
