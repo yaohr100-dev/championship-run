@@ -433,7 +433,7 @@ function renderCandidates(candidates) {
       <div class="stats">${t('lib.header.age')} ${c.age}</div>
       ${blind
         ? `<div class="stats">评分已隐藏（盲选模式）</div>`
-        : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b> <span class="pot">★${c.potential}</span></div>
+        : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b>${state.gameMode === 'dynasty' ? ` <span class="pot">★${c.potential}</span>` : ''}</div>
            <div class="stats">${c.pts} ${t('misc.pts')} · ${c.trb} ${t('misc.reb')} · ${c.ast} ${t('misc.ast')}</div>`}
       ${need ? `<div class="need-badge">${t('draft.need')} ${c.position}</div>` : ''}
       ${!blind && state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
