@@ -1459,14 +1459,15 @@ function tradePoints() { return parseInt(getState('trade_points') || '0', 10); }
 
 function tradeValue(players) {
   // Normal mode: pure overall value (no age discount — it's just one season).
-  // Dynasty mode: smooth age curve peaking at 27, gradually declining after.
+  // Dynasty mode: mild age curve so OVR stays the primary factor.
+  // Age can shift value by at most ~8% — never enough to bridge a 10-point OVR gap.
   if (getState('game_mode') !== 'dynasty') return players.reduce((s, p) => s + p.overall, 0);
   const ages = playerAges();
   return players.reduce((s, p) => {
     const age = ages[p.name] || p.age || 26;
-    // Smooth linear ramp: young premium up to +5.6% at age 20, no adjustment at 27,
-    // gradual decline to -18% at age 37+.
-    const f = age <= 27 ? 1.0 + (27 - age) * 0.008 : Math.max(0.80, 1.0 - (age - 27) * 0.018);
+    // Gentle curve: young premium +0.4%/yr before 27, old discount -1.0%/yr after.
+    //   age 22 → +2%   age 27 → 0%   age 33 → -6%   age 37 → -10%   cap -12%
+    const f = age <= 27 ? 1.0 + (27 - age) * 0.004 : Math.max(0.88, 1.0 - (age - 27) * 0.01);
     return s + Math.round(p.overall * f);
   }, 0);
 }
