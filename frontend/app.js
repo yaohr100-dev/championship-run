@@ -46,7 +46,7 @@ function show(id) {
 }
 
 let SESSION_ID = localStorage.getItem('championship_session');
-if (!SESSION_ID) { SESSION_ID = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('championship_session', SESSION_ID); }
+if (!SESSION_ID) { SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('championship_session', SESSION_ID); }
 
 async function api(path, options) {
   const sep = path.includes('?') ? '&' : '?';
@@ -59,6 +59,8 @@ async function api(path, options) {
 const fmt = (n) => (typeof n === 'number' ? n.toFixed(1) : n);
 const pct = (n) => (typeof n === 'number' ? (n * 100).toFixed(1) + '%' : '—');
 const halfBadge = (half) => (half === 'first' ? ' <span class="half-badge first">1st half only</span>' : (half === 'second' ? ' <span class="half-badge second">2nd half only</span>' : ''));
+// HTML-escape for safe innerHTML interpolation (user names, team names)
+const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
 const growthBadge = (p) => (p.delta == null ? '' : (p.delta > 0 ? ` <span class="good">▲${p.delta}</span>` : p.delta < 0 ? ` <span class="bad">▼${Math.abs(p.delta)}</span>` : ''));
 
 // ---------- Session ID (view / switch your save) ----------
@@ -160,14 +162,14 @@ async function loadSavedTeams() {
 function savedResultsHtml(r) {
   if (!r) return '';
   const parts = [];
-  if (r.season) parts.push(`Season ${r.season.wins}-${r.season.losses} (${r.season.conference})`);
-  if (r.playoff) parts.push(r.playoff.userEliminated ? `Eliminated round ${r.playoff.userEliminatedRound}` : '🏆 Champion');
+  if (r.season) parts.push(`${t('save.season')} ${r.season.wins}-${r.season.losses} (${r.season.conference})`);
+  if (r.playoff) parts.push(r.playoff.userEliminated ? `${t('result.eliminated')} ${r.playoff.userEliminatedRound} ${t('result.eliminatedRound')}` : `🏆 ${t('save.champion')}`);
   const head = parts.length ? `<div class="saved-record muted">${parts.join(' · ')}</div>` : '';
-  const standingsTable = r.seasonStandings ? `<details class="saved-avgs"><summary>Season standings</summary>${standingsHtml(r.seasonStandings.east, r.seasonStandings.west)}</details>` : '';
-  const bracket = r.playoffBracket && r.playoffBracket.length ? `<details class="saved-avgs"><summary>Playoff bracket</summary>${renderBracket(r.playoffBracket, [])}</details>` : '';
-  const seasonTable = r.seasonAverages ? `<details class="saved-avgs"><summary>Your season averages</summary>${avgTableHtml(r.seasonAverages)}</details>` : '';
-  const playoffTable = r.playoffAverages ? `<details class="saved-avgs"><summary>Playoff averages</summary>${avgTableHtml(r.playoffAverages, false)}</details>` : '';
-  const tradeLog = r.leagueTradeLog && r.leagueTradeLog.length ? `<details class="saved-avgs"><summary>League trades (${r.leagueTradeLog.length})</summary><div class="trade-log-list">${r.leagueTradeLog.map((x) => `<div>${x}</div>`).join('')}</div></details>` : '';
+  const standingsTable = r.seasonStandings ? `<details class="saved-avgs"><summary>${t('save.seasonStandings')}</summary>${standingsHtml(r.seasonStandings.east, r.seasonStandings.west)}</details>` : '';
+  const bracket = r.playoffBracket && r.playoffBracket.length ? `<details class="saved-avgs"><summary>${t('save.playoffBracket')}</summary>${renderBracket(r.playoffBracket, [])}</details>` : '';
+  const seasonTable = r.seasonAverages ? `<details class="saved-avgs"><summary>${t('save.yourSeasonAvgs')}</summary>${avgTableHtml(r.seasonAverages)}</details>` : '';
+  const playoffTable = r.playoffAverages ? `<details class="saved-avgs"><summary>${t('save.playoffAvgs')}</summary>${avgTableHtml(r.playoffAverages, false)}</details>` : '';
+  const tradeLog = r.leagueTradeLog && r.leagueTradeLog.length ? `<details class="saved-avgs"><summary>${t('save.leagueTrades')} (${r.leagueTradeLog.length})</summary><div class="trade-log-list">${r.leagueTradeLog.map((x) => `<div>${x}</div>`).join('')}</div></details>` : '';
   return head + standingsTable + bracket + seasonTable + playoffTable + tradeLog;
 }
 
@@ -261,7 +263,7 @@ function syncModeNote() {
     normalDiff.disabled = true;
     document.querySelector('input[name=mode][value=open]').checked = true;
     document.querySelector('input[name=difficulty][value=hard]').checked = true;
-    $('mode-note').textContent = '王朝模式：强制工资帽、显示评分、最多10个赛季。可随时结束王朝。';
+    $('mode-note').textContent = t('form.dynastyNote');
   } else {
     blindRadio.disabled = false;
     normalDiff.disabled = false;
@@ -343,7 +345,7 @@ function resumePlayoffs(p) {
   let html = `<h3>${t('playoffs.bracket')}</h3>${renderBracket(p.rounds, p.nextMatchups)}`;
   if (p.userEliminated) html += `<p class="muted eliminated-note">${t('playoffs.eliminated')} ${p.userEliminatedRound} ${t('playoffs.eliminatedEnd')}</p>`;
   html += `<h3>${t('playoffs.round')} ${p.round}</h3><div class="bracket">${matchups}</div>`;
-  html += `<div class="panel" style="margin-bottom:12px"><b>🛡️ 防守策略</b><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><label class="inline"><input type="radio" name="defense" value="man" checked> 人盯人</label><label class="inline"><input type="radio" name="defense" value="zone"> 联防</label><label class="inline"><input type="radio" name="defense" value="double"> 包夹核心</label></div></div>`;
+  html += `<div class="panel" style="margin-bottom:12px"><b>${t('defense.title')}</b><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><label class="inline"><input type="radio" name="defense" value="man" checked> ${t('defense.man')}</label><label class="inline"><input type="radio" name="defense" value="zone"> ${t('defense.zone')}</label><label class="inline"><input type="radio" name="defense" value="double"> ${t('defense.double')}</label></div></div>`;
   html += `<button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${p.round}</button>`;
   $('playoffs-body').innerHTML = html;
   const simBtn = document.getElementById('simulate-round');
@@ -354,7 +356,7 @@ function resumePlayoffs(p) {
       simBtn.textContent = t('misc.simulating');
       try {
         const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
-        await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
+        await api('/api/playoffs/strategy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ strategy }) });
         const j = await api('/api/playoffs/round', { method: 'POST' });
         renderRoundResults(j);
       } catch (e) {
@@ -377,8 +379,8 @@ $('export-save').addEventListener('click', async () => {
     a.download = 'championship-run-save.json';
     a.click();
     URL.revokeObjectURL(url);
-    $('save-msg').textContent = '存档已导出。';
-  } catch (e) { $('save-msg').textContent = '导出失败：' + e.message; }
+    $('save-msg').textContent = t('save.exported');
+  } catch (e) { $('save-msg').textContent = t('save.exportFailed') + e.message; }
 });
 
 $('import-save-btn').addEventListener('click', () => $('import-save').click());
@@ -388,10 +390,10 @@ $('import-save').addEventListener('change', async (ev) => {
   try {
     const data = JSON.parse(await file.text());
     const r = await api('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    $('save-msg').textContent = '存档已恢复。' + (r.skipped && r.skipped.length ? ' 跳过（不在球员池中）：' + r.skipped.join(', ') : '');
+    $('save-msg').textContent = t('save.restored') + (r.skipped && r.skipped.length ? ' ' + t('save.skipped') + r.skipped.join(', ') : '');
     ev.target.value = '';
     await goHome();
-  } catch (e) { $('save-msg').textContent = '导入失败：' + e.message; }
+  } catch (e) { $('save-msg').textContent = t('save.importFailed') + e.message; }
 });
 
 // ---------- Draft ----------
@@ -459,24 +461,34 @@ function renderCandidates(candidates) {
       </div>
       <div class="stats">${t('lib.header.age')} ${c.age}</div>
       ${blind
-        ? `<div class="stats">评分已隐藏（盲选模式）</div>`
+        ? `<div class="stats">${t('misc.blindHidden')}</div>`
         : `<div class="stats">OVR ${c.overall} · EPM ${c.epm} · <b class="rtg">Rtg ${c.rating}</b></div>
            <div class="stats">${c.pts} ${t('misc.pts')} · ${c.trb} ${t('misc.reb')} · ${c.ast} ${t('misc.ast')}</div>`}
       ${need ? `<div class="need-badge">${t('draft.need')} ${c.position}</div>` : ''}
       ${!blind && state.hardMode ? `<div class="salary">💰 $${c.salary}M</div>` : ''}
       <button data-id="${c.id}">${t('draft.pick')}</button>`;
     card.querySelector('button').addEventListener('click', async () => {
+      const btn = card.querySelector('button');
+      if (btn.disabled) return;
+      btn.disabled = true;
       try {
-        const r = await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +card.querySelector('button').dataset.id }) });
+        const r = await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +btn.dataset.id }) });
         if (r.error) {
           toast(r.error, 'error');
-          if (r.error.includes('Roster full')) {
-            toast(t('draft.rosterFull'), 'info');
-          }
+          btn.disabled = false;
           return;
         }
-        await loadDraft();
-      } catch (e) { toast(e.message, 'error'); }
+        // Annual rookie draft: after your pick, the offseason continues to free agency
+        // (the backend clears the draft class, so loadDraft() would show the opening
+        // draft again or jump straight to the lineup, skipping FA).
+        if (state.offseasonFlow) {
+          state.offseasonFlow = false;
+          show('freeagency');
+          await loadFreeAgency();
+        } else {
+          await loadDraft();
+        }
+      } catch (e) { btn.disabled = false; toast(e.message, 'error'); }
     });
     box.appendChild(card);
   }
@@ -520,7 +532,7 @@ function renderFARoster(roster) {
   box.innerHTML = `<b>${t('result.starters')}</b> <span class="muted">(${roster.length}/10)</span>` +
     roster.map((p) => `
       <div class="fa-row">
-        <span>${p.name} <span class="pos">${p.position}</span>${p.age != null ? ` <span class="muted">${p.age}岁</span>` : ''} <span class="muted">OVR ${p.overall}</span>${p.contract != null ? ` · <span class="muted">${p.contract}${t('fa.years')}</span>` : ''}</span>
+        <span>${p.name} <span class="pos">${p.position}</span>${p.age != null ? ` <span class="muted">${p.age}${t('misc.age')}</span>` : ''} <span class="muted">OVR ${p.overall}</span>${p.contract != null ? ` · <span class="muted">${p.contract}${t('fa.years')}</span>` : ''}</span>
         <button data-id="${p.id}" class="ghost">${t('fa.release')}</button>
       </div>`).join('');
   box.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
@@ -653,7 +665,7 @@ function renderLineup() {
     for (const p of state.roster) {
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}, ${p.age}岁${blind ? '' : `, OVR ${p.overall}`})`;
+      opt.textContent = `${p.name} (${p.position}${p.position2 ? '/' + p.position2 : ''}, ${p.age}${t('misc.age')}${blind ? '' : `, OVR ${p.overall}`})`;
       if (match && p.id === match.id) opt.selected = true;
       select.appendChild(opt);
     }
@@ -703,7 +715,7 @@ async function postLineup() {
   if (new Set(starters.map((s) => s.playerId)).size !== 5) throw new Error('Each starter must be a different player.');
   await api('/api/lineup', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ teamName: $('team-name').value || state.replacedTeam || 'My Team', conference: state.conference, replacedTeam: state.replacedTeam, starters }),
+    body: JSON.stringify({ teamName: ($('team-name').value || state.replacedTeam || 'My Team').replace(/[<>&"']/g, ''), conference: state.conference, replacedTeam: state.replacedTeam, starters }),
   });
 }
 
@@ -876,7 +888,7 @@ function renderPropose(myRoster, aiPlayers, teams) {
     if (tm) filtered = filtered.filter((p) => p.team === tm);
     if (q) filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
     if (!filtered.length) {
-      aiList.innerHTML = '<p class="muted" style="padding:8px">No matching players.</p>';
+      aiList.innerHTML = `<p class="muted" style="padding:8px">${t('trade.noMatch')}</p>`;
     } else {
       aiList.innerHTML = `<label class="trade-label">${t('trade.pickSame')}</label>` +
         filtered.map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall} · ${p.team}</span>`}</span></label>`).join('');
@@ -922,7 +934,7 @@ function renderShop(myRoster) {
           <div class="trade-offer-head">${o.aiTeam} offers${blind ? '' : ` <span class="muted">(${o.aiTotal} OVR)</span>`}</div>
           <div class="muted">${o.aiPlayers.map((p) => `${p.name}${blind ? '' : ` (${p.overall})`}`).join(', ')}</div>
           <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">${t('trade.acceptBtn')}</button>
-        </div>`).join('') : `<p class="muted">暂无报价。</p>`;
+        </div>`).join('') : `<p class="muted">${t('trade.noOffers')}</p>`;
       offersBox.querySelectorAll('.accept').forEach((b) => b.addEventListener('click', () => {
         doTrade(JSON.parse(b.dataset.my), JSON.parse(b.dataset.ai), msg, true);
       }));
@@ -942,7 +954,7 @@ function renderIncoming() {
     const msg = document.createElement('div');
     msg.className = 'muted trade-msg';
     box.innerHTML = '';
-    if (!proposals.length) { box.innerHTML = `<p class="muted">暂无收到报价。</p>`; return; }
+    if (!proposals.length) { box.innerHTML = `<p class="muted">${t('trade.noProposals')}</p>`; return; }
     for (const p of proposals) {
       const div = document.createElement('div');
       div.className = 'trade-offer';
@@ -958,7 +970,7 @@ function renderIncoming() {
     }
     box.appendChild(msg);
   }).catch((e) => {
-    box.innerHTML = `<p class="bad">Failed to load proposals: ${e.message}</p>`;
+    box.innerHTML = `<p class="bad">${t('trade.loadFailed')}${e.message}</p>`;
   });
 }
 
@@ -977,8 +989,8 @@ function standingsHtml(east, west) {
   const confTable = (title, teams) => `
     <h3>${title === 'Eastern' ? t('standings.east') : t('standings.west')}</h3>
     <div class="table-scroll"><table>
-      <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th>${blind ? '' : '<th>Str</th>'}</tr></thead>
-      <tbody>${teams.map((t, i) => `
+      <thead><tr><th>#</th><th>${t('save.team')}</th><th>W</th><th>L</th>${blind ? '' : '<th>Str</th>'}</tr></thead>
+      <tbody>${teams.map((tm, i) => `
         <tr${tm.isUser ? ' class="me"' : ''}>
           <td>${i + 1}</td>
           <td>
@@ -1029,7 +1041,7 @@ function renderMidSeason(j) {
       // recover: re-enable the button so the user can retry
       $('finish-season').disabled = false;
       $('finish-season').textContent = `▶ ${t('season.simulateSecond')}`;
-      $('season-result').innerHTML = `<p class="bad">模拟失败: ${e.message}</p><p class="muted">请检查服务器日志,然后重试。</p>`;
+      $('season-result').innerHTML = `<p class="bad">${t('misc.simFailed')}${e.message}</p><p class="muted">${t('misc.checkLogs')}</p>`;
       toast(e.message, 'error');
     }
   });
@@ -1049,7 +1061,7 @@ function renderSeason(j) {
     ? `<button id="go-playoffs" class="primary" style="margin-top:16px">${t('season.toPlayoffs')}</button>`
     : `<p class="muted" style="margin-top:16px">${t('season.missedPlayoffs')}</p>
        <div style="margin-top:12px;display:flex;gap:10px;justify-content:center">
-         <button id="go-result-missed" class="primary">查看结果</button>
+         <button id="go-result-missed" class="primary">${t('misc.viewResult')}</button>
          <button id="go-home-missed" class="ghost">${t('season.backHome')}</button>
        </div>`;
 
@@ -1105,14 +1117,14 @@ function bracketSeriesCell(s, played) {
 }
 
 function renderBracket(rounds, nextMatchups) {
-  const labels = ['Round 1', 'Round 2', 'Conf Finals', 'Finals'];
+  const labels = [t('bracket.round1'), t('bracket.round2'), t('bracket.confFinals'), t('bracket.finals')];
   const cols = rounds.map((series, r) => `
     <div class="bracket-col">
-      <div class="bracket-round">${labels[r] || 'Round ' + (r + 1)}</div>
+      <div class="bracket-round">${labels[r] || t('bracket.round1')}</div>
       ${series.map((s) => bracketSeriesCell(s, true)).join('')}
     </div>`).join('');
   const nextCol = (nextMatchups && nextMatchups.length)
-    ? `<div class="bracket-col"><div class="bracket-round">Next</div>${nextMatchups.map((s) => bracketSeriesCell(s, false)).join('')}</div>`
+    ? `<div class="bracket-col"><div class="bracket-round">${t('bracket.next')}</div>${nextMatchups.map((s) => bracketSeriesCell(s, false)).join('')}</div>`
     : '';
   return `<div class="bracket-grid">${cols}${nextCol}</div>`;
 }
@@ -1121,19 +1133,19 @@ function renderMatchups(matchups, round) {
   $('playoffs-body').innerHTML = `
     <h3>${t('playoffs.round')} ${round}</h3>
     <div class="panel" style="margin-bottom:12px">
-      <b>🛡️ 防守策略</b>
+      <b>${t('defense.title')}</b>
       <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-        <label class="inline"><input type="radio" name="defense" value="man" checked> 人盯人 (默认)</label>
-        <label class="inline"><input type="radio" name="defense" value="zone"> 联防 (+1.5 vs三分大队)</label>
-        <label class="inline"><input type="radio" name="defense" value="double"> 包夹核心 (+1.0 vs单核球队)</label>
+        <label class="inline"><input type="radio" name="defense" value="man" checked> ${t('defense.man')} <span class="muted" style="font-size:11px">${t('defense.man.desc')}</span></label>
+        <label class="inline"><input type="radio" name="defense" value="zone"> ${t('defense.zone')} <span class="muted" style="font-size:11px">${t('defense.zone.desc')}</span></label>
+        <label class="inline"><input type="radio" name="defense" value="double"> ${t('defense.double')} <span class="muted" style="font-size:11px">${t('defense.double.desc')}</span></label>
       </div>
     </div>
     <div class="bracket">${matchups.map((m) => `
       <div class="series${m.a.isUser || m.b.isUser ? ' user' : ''}">
         <div class="series-teams">
-          <details><summary>${m.a.isUser ? '<span class="user-team">★ ' + m.a.name + '</span> (${t("misc.you")})' : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
+          <details><summary>${m.a.isUser ? `<span class="user-team">★ ${m.a.name}</span> (${t('misc.you')})` : m.a.name}</summary><div class="roster">${m.a.roster.map(rosterLine).join('<br>')}</div></details>
           <span class="vs">vs</span>
-          <details><summary>${m.b.isUser ? '<span class="user-team">★ ' + m.b.name + '</span> (${t("misc.you")})' : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
+          <details><summary>${m.b.isUser ? `<span class="user-team">★ ${m.b.name}</span> (${t('misc.you')})` : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
         </div>
       </div>`).join('')}</div>
     <button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${round}</button>`;
@@ -1146,7 +1158,7 @@ function renderMatchups(matchups, round) {
       btn.textContent = t('misc.simulating');
       try {
         const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
-        await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
+        await api('/api/playoffs/strategy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ strategy }) });
         const j = await api('/api/playoffs/round', { method: 'POST' });
         renderRoundResults(j);
       } catch (e) {
@@ -1257,7 +1269,7 @@ function showResult() {
     const canNext = isDynasty && r.seasonNumber < r.dynastyMax;
     const actions = `
       ${canNext ? `<button id="next-season" class="primary">▶ ${t('result.nextSeason')}</button>` : (isDynasty ? `<p class="muted">🏆 ${t('result.dynastyComplete')} ${r.dynastyMax} ${t('result.seasons')}</p>` : '')}
-      ${isDynasty ? `<button id="end-dynasty" class="ghost">结束王朝</button>` : ''}
+      ${isDynasty ? `<button id="end-dynasty" class="ghost">${t('result.endDynasty')}</button>` : ''}
       <button id="print-summary" class="primary">🖨️ ${t('result.printSummary')}</button>
       <button id="back-home-final" class="ghost">${t('result.backHome')}</button>`;
 
@@ -1272,8 +1284,8 @@ function showResult() {
       ${myAwards.length ? `<div class="result-awards">${myAwards.map((a) => `<span class="chip">${a}</span>`).join('')}</div>` : ''}
       ${historyHtml}
       <div class="result-roster">
-        <div><b>${t('result.starters')}</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}岁</span>${p.contract != null ? ` <span class="muted">· ${p.contract}${t('fa.years')}</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${growthBadge(p)}</span>`).join('')}</div></div>
-        <div><b>${t('result.bench')}</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}岁</span>${p.contract != null ? ` <span class="muted">· ${p.contract}${t('fa.years')}</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${growthBadge(p)}</span>`).join('')}</div></div>
+        <div><b>${t('result.starters')}</b><div class="chip-list">${starters.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}${t('misc.age')}</span>${p.contract != null ? ` <span class="muted">· ${p.contract}${t('fa.years')}</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${growthBadge(p)}</span>`).join('')}</div></div>
+        <div><b>${t('result.bench')}</b><div class="chip-list">${bench.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position}</span><span class="muted"> ${p.age}${t('misc.age')}</span>${p.contract != null ? ` <span class="muted">· ${p.contract}${t('fa.years')}</span>` : ''}${isBlind() ? '' : ` <span class="muted">${p.overall}</span>`}${growthBadge(p)}</span>`).join('')}</div></div>
       </div>
       ${top.length ? `<div class="result-top"><b>${t('result.topScorers')}</b><div class="chip-list">${top.map((p) => `<span class="chip">${p.name} <span class="muted">${fmt(p.pts)} ${t('misc.pts')}</span></span>`).join('')}</div></div>` : ''}
       ${(r.seasonAverages || []).length ? `<div class="result-leaders"><b>${t('result.teamLeaders')}</b><div class="chip-list">${
@@ -1297,7 +1309,7 @@ function showResult() {
     $('print-summary').addEventListener('click', () => printSummary(r));
     $('end-dynasty')?.addEventListener('click', async () => {
       if (confirm(t('result.endDynastyConfirm'))) {
-        await api('/api/reset', { method: 'POST', body: { gameMode: 'normal' } });
+        await api('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gameMode: 'normal' }) });
         goHome();
       }
     });
@@ -1347,7 +1359,7 @@ function printSummary(r) {
     ${awards.length ? `<h2>${t('summary.awards')}</h2><ul>${awards.map((a) => `<li>${a}</li>`).join('')}</ul>` : ''}
     ${(r.roster || []).length ? `<h2>${t('summary.roster')}</h2><table><thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th></tr></thead><tbody>${[...starters, ...bench].map(rosterRow).join('')}</tbody></table>` : ''}
     ${leaders ? `<h2>${t('summary.teamLeaders')}</h2><ul>${leaders}</ul>` : ''}
-    <p class="footer">冠军之路 · ${t('summary.generated')} ${new Date().toLocaleDateString()}</p>
+    <p class="footer">${t('brand.title')} · ${t('summary.generated')} ${new Date().toLocaleDateString()}</p>
   </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html' });
@@ -1386,12 +1398,12 @@ function buildMatchupTeam(box, prefix, defaultIds) {
   const selected = []; // player ids, in add order
 
   const title = document.createElement('h3');
-  title.textContent = `${prefix.toUpperCase()} 队`;
+  title.textContent = prefix === 'a' ? t('matchup.teamA') : t('matchup.teamB');
   box.appendChild(title);
 
   const search = document.createElement('input');
   search.type = 'text';
-  search.placeholder = '搜索球员名字…';
+  search.placeholder = t('lib.searchPlaceholder');
   search.className = 'mm-search';
   box.appendChild(search);
 
@@ -1400,7 +1412,7 @@ function buildMatchupTeam(box, prefix, defaultIds) {
   box.appendChild(results);
 
   const addBtn = document.createElement('button');
-  addBtn.textContent = '添加选中';
+  addBtn.textContent = t('matchup.addSelected');
   addBtn.className = 'ghost';
   box.appendChild(addBtn);
 
@@ -1518,14 +1530,14 @@ $('mm-simulate').addEventListener('click', async () => {
 function renderMatchupResult(j) {
   const teamTable = (name, stats, wins, losses, avgScore) => `
     <div class="mm-team-result">
-      <div class="mm-team-head"><b>${name}</b> <span class="muted">${wins}-${losses} · 场均 ${avgScore} ${t('misc.pts')}</span></div>
+      <div class="mm-team-head"><b>${name}</b> <span class="muted">${wins}-${losses} · ${t('matchup.avgScore')} ${avgScore} ${t('misc.pts')}</span></div>
       <div class="table-scroll"><table><thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th></tr></thead>
       <tbody>${stats.slice().sort((a, b) => b.pts - a.pts).map((s) => `<tr><td>${s.name}</td><td>${s.position}</td><td class="num">${fmt(s.pts)}</td><td class="num">${fmt(s.trb)}</td><td class="num">${fmt(s.ast)}</td><td class="num">${fmt(s.stl)}</td><td class="num">${fmt(s.blk)}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
   $('mm-result').innerHTML = `
-    <h3 style="margin-top:20px">对战结果 <span class="muted">(${j.times} 场 · ${j.mode === 'playoff' ? '季后赛' : '常规赛'})</span></h3>
-    <div class="mm-scoreline"><b>A队</b> <span>${j.aWins}</span> — <span>${j.bWins}</span> <b>B队</b></div>
-    <div class="mm-result-grid">${teamTable('A队', j.aStats, j.aWins, j.bWins, j.aAvgScore)}${teamTable('B队', j.bStats, j.bWins, j.aWins, j.bAvgScore)}</div>`;
+    <h3 style="margin-top:20px">${t('matchup.result')} <span class="muted">(${j.times} ${t('matchup.games')} · ${j.mode === 'playoff' ? t('matchup.playoffLabel') : t('matchup.regularLabel')})</span></h3>
+    <div class="mm-scoreline"><b>${t('matchup.teamA')}</b> <span>${j.aWins}</span> — <span>${j.bWins}</span> <b>${t('matchup.teamB')}</b></div>
+    <div class="mm-result-grid">${teamTable(t('matchup.teamA'), j.aStats, j.aWins, j.bWins, j.aAvgScore)}${teamTable(t('matchup.teamB'), j.bStats, j.bWins, j.aWins, j.bAvgScore)}</div>`;
 }
 
 // ---------- init ----------

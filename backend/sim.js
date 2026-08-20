@@ -548,18 +548,18 @@ function buildSchedule(teams) {
       rr2.push({ home: j, away: i });
     }
   }
-  // Extra intra-conference home-and-home games (12 opponents per team), built as a
-  // cycle so the edges stay symmetric: each team plays the 6 teams ahead of it and
-  // the 6 behind it in its conference's circular order.
+  // Extra intra-conference home-and-home games (12 opponents per team), built as
+  // two symmetric cycles. With 15 teams per conference, d=1..6 covers 6 nearest
+  // opponents; each pair plays once per half with home/away flipped between halves.
+  // Total per half: 29 (round-robin) + 6×2 (extras) = 41 → 82-game season.
   const exA = [], exB = [];
   for (const conf of ['East', 'West']) {
     const ids = teams.map((t, k) => (t.conf === conf ? k : -1)).filter((k) => k >= 0);
     const m = ids.length;
     for (let k = 0; k < m; k++) {
       for (let d = 1; d <= 6; d++) {
-        const a = ids[k], b = ids[(k + d) % m];
-        exA.push({ home: a, away: b });
-        exB.push({ home: b, away: a });
+        exA.push({ home: ids[k], away: ids[(k + d) % m] });
+        exB.push({ home: ids[(k + d) % m], away: ids[k] });
       }
     }
   }
@@ -688,7 +688,7 @@ function mergeStandings(s1, s2, totalGames) {
     }
     const wins = t1.wins + t2.wins;
     const gameLog = [...(t1.gameLog || []), ...(t2.gameLog || [])];
-    return { ...t2, wins, losses: totalGames - wins, winPct: wins / totalGames, gameLog, acc };
+    return { ...t2, players: t1.players, wins, losses: totalGames - wins, winPct: wins / totalGames, gameLog, acc };
   });
 }
 

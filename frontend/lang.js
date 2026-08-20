@@ -19,6 +19,18 @@ const LANG = {
     'home.matchup.desc': 'Build two teams and simulate head-to-head.',
     'home.trophy': '🏆 Trophy Room',
     'home.hof': '🏅 Hall of Fame',
+
+    // ---- Trophy room category labels ----
+    'trophy.champion': 'Championships',
+    'trophy.eastChamp': 'East Champs',
+    'trophy.westChamp': 'West Champs',
+    'trophy.mvp': 'MVPs',
+    'trophy.dpoy': 'DPOYs',
+    'trophy.sixMan': 'Sixth Man',
+    'trophy.allNba': 'All-NBA First Team',
+    'trophy.finalsMvp': 'Finals MVP',
+    'trophy.eastMvp': 'East Finals MVP',
+    'trophy.westMvp': 'West Finals MVP',
     'home.manageSaves': 'Manage saves…',
     'home.continue': 'Continue Last Run',
     'home.continueBtn': 'Continue',
@@ -42,6 +54,7 @@ const LANG = {
     'form.hardHint': '($400M salary cap)',
     'form.startDraft': 'Start Draft',
     'form.archive': 'Season Archive',
+    'form.dynastyNote': 'Dynasty mode: salary cap forced, ratings shown, up to 10 seasons. You can end the dynasty anytime.',
 
     // ---- Progress bar ----
     'step.draft': 'Draft',
@@ -129,6 +142,15 @@ const LANG = {
     'trade.allTeams': 'All teams',
     'trade.searchPlayer': 'Search player name…',
 
+    // ---- Defense Strategy ----
+    'defense.title': '🛡️ Defense Strategy',
+    'defense.man': 'Man-to-Man (default)',
+    'defense.man.desc': 'No bonus, no penalty',
+    'defense.zone': 'Zone Defense',
+    'defense.zone.desc': '+2.0 vs 3PT-heavy, -1.0 vs driving, +0.3 vs other',
+    'defense.double': 'Double Team Star',
+    'defense.double.desc': '+2.0 vs single-star, -0.5 vs balanced, +0.3 vs other',
+
     // ---- Playoffs ----
     'playoffs.title': 'Playoffs',
     'playoffs.settingUp': 'Setting up the bracket…',
@@ -149,6 +171,7 @@ const LANG = {
 
     // ---- Result ----
     'result.title': 'Season Result',
+    'result.season': 'Season',
     'result.champions': 'CHAMPIONS!',
     'result.eliminated': 'Eliminated in round',
     'result.eliminatedRound': '',
@@ -263,6 +286,52 @@ const LANG = {
     'misc.savesNone': 'No players drafted yet.',
     'misc.simulating': 'Simulating…',
     'misc.you': 'you',
+
+    // ---- Save & archive (result labels) ----
+    'save.exported': 'Save exported.',
+    'save.exportFailed': 'Export failed: ',
+    'save.restored': 'Save restored.',
+    'save.skipped': 'Skipped (not in pool): ',
+    'save.importFailed': 'Import failed: ',
+    'save.season': 'Season',
+    'save.champion': 'Champion',
+    'save.seasonStandings': 'Season standings',
+    'save.playoffBracket': 'Playoff bracket',
+    'save.yourSeasonAvgs': 'Your season averages',
+    'save.playoffAvgs': 'Playoff averages',
+    'save.leagueTrades': 'League trades',
+    'save.team': 'Team',
+
+    // ---- Trade ----
+    'trade.noOffers': 'No offers available.',
+    'trade.noProposals': 'No proposals yet.',
+    'trade.noMatch': 'No matching players.',
+    'trade.loadFailed': 'Failed to load proposals: ',
+
+    // ---- Misc ----
+    'misc.age': 'yo',
+    'misc.blindHidden': 'Rating hidden (blind mode)',
+    'misc.simFailed': 'Simulation failed: ',
+    'misc.checkLogs': 'Check the server log, then retry.',
+    'misc.viewResult': 'View result',
+    'result.endDynasty': 'End dynasty',
+
+    // ---- Matchup ----
+    'matchup.teamA': 'Team A',
+    'matchup.teamB': 'Team B',
+    'matchup.addSelected': 'Add selected',
+    'matchup.result': 'Matchup result',
+    'matchup.avgScore': 'avg',
+    'matchup.games': 'games',
+    'matchup.regularLabel': 'Regular',
+    'matchup.playoffLabel': 'Playoffs',
+
+    // ---- Bracket ----
+    'bracket.round1': 'Round 1',
+    'bracket.round2': 'Round 2',
+    'bracket.confFinals': 'Conf Finals',
+    'bracket.finals': 'Finals',
+    'bracket.next': 'Next',
   },
 
   zh: {
@@ -279,6 +348,18 @@ const LANG = {
     'home.matchup.desc': '组建两支球队进行模拟对决。',
     'home.trophy': '🏆 奖杯陈列室',
     'home.hof': '🏅 名人堂',
+
+    // ---- Trophy room category labels ----
+    'trophy.champion': '总冠军',
+    'trophy.eastChamp': '东部冠军',
+    'trophy.westChamp': '西部冠军',
+    'trophy.mvp': '常规赛MVP',
+    'trophy.dpoy': '最佳防守球员',
+    'trophy.sixMan': '最佳第六人',
+    'trophy.allNba': '最佳一阵',
+    'trophy.finalsMvp': '总决赛MVP',
+    'trophy.eastMvp': '东部决赛MVP',
+    'trophy.westMvp': '西部决赛MVP',
     'home.manageSaves': '管理存档…',
     'home.continue': '继续上次游戏',
     'home.continueBtn': '继续',
@@ -300,6 +381,7 @@ const LANG = {
     'form.hardHint': '（$400M 工资帽）',
     'form.startDraft': '开始选秀',
     'form.archive': '赛季存档',
+    'form.dynastyNote': '王朝模式：强制工资帽、显示评分、最多10个赛季。可随时结束王朝。',
     'step.draft': '选秀',
     'step.lineup': '阵容',
     'step.season': '赛季',
@@ -374,6 +456,13 @@ const LANG = {
     'trade.needSame': '请选择同等数量（1-3人）。',
     'trade.allTeams': '全部球队',
     'trade.searchPlayer': '搜索球员姓名…',
+    'defense.title': '🛡️ 防守策略',
+    'defense.man': '人盯人（默认）',
+    'defense.man.desc': '无加成无惩罚',
+    'defense.zone': '联防',
+    'defense.zone.desc': '+2.0 vs 三分大队, -1.0 vs 突破型, +0.3 vs 其他',
+    'defense.double': '包夹核心',
+    'defense.double.desc': '+2.0 vs 单核球队, -0.5 vs 均衡球队, +0.3 vs 其他',
     'playoffs.title': '季后赛',
     'playoffs.settingUp': '正在设置对阵…',
     'playoffs.bracket': '季后赛对阵',
@@ -391,6 +480,7 @@ const LANG = {
     'playoffs.eliminated': '你在第',
     'playoffs.eliminatedEnd': '轮被淘汰。季后赛继续进行。',
     'result.title': '赛季结果',
+    'result.season': '赛季',
     'result.champions': '总冠军！',
     'result.eliminated': '在第',
     'result.eliminatedRound': '轮被淘汰',
@@ -429,8 +519,6 @@ const LANG = {
     'recap.refused': '拒绝续约',
     'recap.refusedDesc': '这些球员合同到期后选择离开,现已成为自由球员。',
     'recap.news': '联盟新闻',
-    'recap.refused': '拒绝续约',
-    'recap.refusedDesc': '这些球员合同到期后选择离开,现已成为自由球员。',
     'summary.dynasty': '王朝模式',
     'summary.seasonSummary': '赛季总结',
     'summary.seasons': '个赛季',
@@ -489,6 +577,52 @@ const LANG = {
     'misc.savesNone': '暂无已选球员。',
     'misc.simulating': '模拟中…',
     'misc.you': '你',
+
+    // ---- Save & archive (result labels) ----
+    'save.exported': '存档已导出。',
+    'save.exportFailed': '导出失败：',
+    'save.restored': '存档已恢复。',
+    'save.skipped': '跳过（不在球员池中）：',
+    'save.importFailed': '导入失败：',
+    'save.season': '赛季',
+    'save.champion': '总冠军',
+    'save.seasonStandings': '赛季排名',
+    'save.playoffBracket': '季后赛对阵',
+    'save.yourSeasonAvgs': '你的赛季场均',
+    'save.playoffAvgs': '季后赛场均',
+    'save.leagueTrades': '联盟交易',
+    'save.team': '球队',
+
+    // ---- Trade ----
+    'trade.noOffers': '暂无报价。',
+    'trade.noProposals': '暂无收到报价。',
+    'trade.noMatch': '暂无匹配球员。',
+    'trade.loadFailed': '加载报价失败：',
+
+    // ---- Misc ----
+    'misc.age': '岁',
+    'misc.blindHidden': '评分已隐藏（盲选模式）',
+    'misc.simFailed': '模拟失败：',
+    'misc.checkLogs': '请检查服务器日志,然后重试。',
+    'misc.viewResult': '查看结果',
+    'result.endDynasty': '结束王朝',
+
+    // ---- Matchup ----
+    'matchup.teamA': 'A队',
+    'matchup.teamB': 'B队',
+    'matchup.addSelected': '添加选中',
+    'matchup.result': '对战结果',
+    'matchup.avgScore': '场均',
+    'matchup.games': '场',
+    'matchup.regularLabel': '常规赛',
+    'matchup.playoffLabel': '季后赛',
+
+    // ---- Bracket ----
+    'bracket.round1': '第一轮',
+    'bracket.round2': '第二轮',
+    'bracket.confFinals': '分区决赛',
+    'bracket.finals': '总决赛',
+    'bracket.next': '下一轮',
   },
 };
 

@@ -45,6 +45,26 @@ function playerBrief(p) {
   };
 }
 
+// Blind mode: hide ability data server-side so DevTools / curl can't peek.
+function isBlindMode() {
+  return getState('mode') === 'blind';
+}
+
+// Strip ability fields from a playerBrief object in blind mode.
+// Keeps: id, name, position, position2, age, pts, trb, ast, stl, blk, fgPct, threePct, ftPct
+// Hides: overall, epm, oepm, depm, rating, salary
+function stripAbility(brief) {
+  if (!isBlindMode()) return brief;
+  const { overall, epm, oepm, depm, rating, salary, ...rest } = brief;
+  return rest;
+}
+
+// Apply stripAbility to an array of playerBrief objects.
+function stripAbilityAll(arr) {
+  if (!isBlindMode()) return arr;
+  return arr.map(stripAbility);
+}
+
 // team view: starters always, full roster optional
 function teamView(t, includeRoster = false) {
   const starters = t.players.filter(p => p.role === 'starter')
@@ -69,8 +89,12 @@ app.get('/api/nba-teams', (req, res) => res.json({ teams: sim.NBA_TEAMS }));
 // ---- player library ----
 app.get('/api/players', (req, res) => {
   const { sort = 'overall', order = 'desc', pos, q } = req.query;
-  const valid = ['name', 'position', 'overall', 'rating', 'pts', 'trb', 'ast', 'stl', 'blk', 'oepm', 'depm', 'epm', 'age'];
-  const col = valid.includes(sort) ? sort : 'overall';
+  const blind = isBlindMode();
+  // Blind mode: only allow sorting by non-ability columns
+  const valid = blind
+    ? ['name', 'position', 'age', 'pts', 'trb', 'ast', 'stl', 'blk']
+    : ['name', 'position', 'overall', 'rating', 'pts', 'trb', 'ast', 'stl', 'blk', 'oepm', 'depm', 'epm', 'age'];
+  const col = valid.includes(sort) ? sort : (blind ? 'name' : 'overall');
   const dir = order === 'asc' ? 'ASC' : 'DESC';
   let sql = 'SELECT id, name, position, position2, age, overall, pts, trb, ast, stl, blk, oepm, depm, epm FROM players';
   const params = [];
@@ -82,7 +106,7 @@ app.get('/api/players', (req, res) => {
   if (col !== 'rating') sql += ` ORDER BY ${col} ${dir}`;
   const players = db.prepare(sql).all(...params).map(p => ({ ...p, rating: +sim.powerRating(p).toFixed(1) }));
   if (col === 'rating') players.sort((a, b) => (dir === 'ASC' ? a.rating - b.rating : b.rating - a.rating));
-  res.json({ players });
+  res.json({ players: stripAbilityAll(players) });
 });
 
 // ---- matchup simulator ----
@@ -141,6 +165,29 @@ app.post('/api/matchup', (req, res) => {
 });
 
 // ---- draft ----
+// Hard-mode affordability guarantee: ensure at least one candidate fits the budget.
+// Uses ACTUAL minimum salary from the player pool (not the formula estimate) so
+// the reservation is correct even when low-OVR players have negative EPM.
+function guaranteeAffordableCandidate(candidates, spent, rosterCount) {
+  const remaining = sim.HARD_MODE_BUDGET - spent;
+  const futurePicks = sim.ROSTER_SIZE - rosterCount - 1; // picks left AFTER this one
+  // Actual minimum salary from the full player pool (accounts for negative EPM)
+  const allSalaries = db.prepare('SELECT overall, epm FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession())
+    .map(p => sim.playerSalary(p.overall, p.epm));
+  const actualMinSalary = allSalaries.length ? Math.min(...allSalaries) : 1;
+  // Reserve enough for future picks, but never less than actualMinSalary per pick
+  const reserved = futurePicks * actualMinSalary;
+  let usable = remaining - reserved;
+  if (usable < actualMinSalary) usable = actualMinSalary; // never softlock
+  if (candidates.some(c => sim.playerSalary(c.overall, c.epm) <= usable)) return candidates;
+  // Inject an affordable player
+  const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
+  const affordable = db.prepare('SELECT * FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession())
+    .filter(p => !drafted.has(p.id) && sim.playerSalary(p.overall, p.epm) <= usable);
+  if (affordable.length) candidates[0] = sim.shuffle(affordable)[0];
+  return candidates;
+}
+
 app.get('/api/draft', (req, res) => {
   const offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
   // Annual rookie draft: always 1 pick per team, board is the full draft class
@@ -154,30 +201,22 @@ app.get('/api/draft', (req, res) => {
         .reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0)
     : 0;
 
-  // hard mode: guarantee at least one candidate fits the budget (initial draft only)
+  // hard mode: guarantee at least one candidate fits the budget
   if (hard && !isRookieDraft) {
-    const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m, 0);
-    const remaining = sim.HARD_MODE_BUDGET - spent;
-    const usable = remaining - (sim.ROSTER_SIZE - rosterCount - 1) * minSalary;
-    if (!candidates.some(c => sim.playerSalary(c.overall, c.epm) <= usable)) {
-      const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
-      const affordable = db.prepare('SELECT * FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession())
-        .filter(p => !drafted.has(p.id) && sim.playerSalary(p.overall, p.epm) <= usable);
-      if (affordable.length) candidates[0] = sim.shuffle(affordable)[0];
-    }
+    candidates = guaranteeAffordableCandidate(candidates, spent, rosterCount);
   }
 
   res.json({
     rerolls: ensureRerolls(),
     rosterCount,
     rosterSize: sim.ROSTER_SIZE,
-    candidates: candidates.map(playerBrief),
+    candidates: stripAbilityAll(candidates.map(playerBrief)),
     hardMode: hard,
     budget: hard ? sim.HARD_MODE_BUDGET : null,
     spent: hard ? spent : null,
     offseason,
     offseasonPicks: isRookieDraft ? 1 : offseasonPicks,
-    draftBoard: isRookieDraft ? candidates.map(playerBrief) : null,
+    draftBoard: isRookieDraft ? stripAbilityAll(candidates.map(playerBrief)) : null,
     userPosition: isRookieDraft ? draftUserPosition() : null,
     picks: isRookieDraft ? (getState('draft_picks') ? JSON.parse(getState('draft_picks')) : []) : [],
     canPass: getState('draft_can_pass') === '1',
@@ -188,8 +227,15 @@ app.post('/api/draft/reroll', (req, res) => {
   if (rerolls <= 0) return res.status(400).json({ error: 'No rerolls left' });
   setState('rerolls', rerolls - 1);
   const offseason = parseInt(getState('offseason_picks') || '0', 10) > 0;
-  const candidates = offseason ? draftBoard() : sim.draftCandidates(db);
-  res.json({ rerolls: rerolls - 1, candidates: candidates.map(playerBrief) });
+  let candidates = offseason ? draftBoard() : sim.draftCandidates(db);
+  // hard mode: also guarantee affordability on reroll
+  if (getState('difficulty') === 'hard' && !offseason) {
+    const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
+    const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
+      .reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0);
+    candidates = guaranteeAffordableCandidate(candidates, spent, rosterCount);
+  }
+  res.json({ rerolls: rerolls - 1, candidates: stripAbilityAll(candidates.map(playerBrief)) });
 });
 app.post('/api/roster', (req, res) => {
   const { playerId } = req.body || {};
@@ -211,12 +257,21 @@ app.post('/api/roster', (req, res) => {
       .reduce((s, x) => s + sim.playerSalary(x.overall, x.epm), 0);
     const salary = sim.playerSalary(p.overall, p.epm);
     const futurePicks = sim.ROSTER_SIZE - count - 1; // picks left after this one
-    const minSalary = sim.playerSalary(db.prepare('SELECT MIN(overall) m FROM players').get().m, 0);
+    // Use ACTUAL minimum salary (not formula estimate) to avoid blocking valid picks
+    const allSalaries = db.prepare('SELECT overall, epm FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession())
+      .map(x => sim.playerSalary(x.overall, x.epm));
+    const actualMinSalary = allSalaries.length ? Math.min(...allSalaries) : 1;
     const total = spent + salary;
-    if (total + futurePicks * minSalary > sim.HARD_MODE_BUDGET) {
-      const maxNow = sim.HARD_MODE_BUDGET - futurePicks * minSalary;
-      return res.status(400).json({ error: `Over budget: $${total}M (max $${maxNow}M now — keep $${minSalary}M per remaining pick)` });
+    if (total + futurePicks * actualMinSalary > sim.HARD_MODE_BUDGET) {
+      const maxNow = sim.HARD_MODE_BUDGET - futurePicks * actualMinSalary;
+      return res.status(400).json({ error: `Over budget: $${total}M (max $${maxNow}M now — keep $${actualMinSalary}M per remaining pick)` });
     }
+  }
+
+  // rookie draft: check availability BEFORE inserting (prevents data corruption)
+  if (isRookieDraft) {
+    const alreadyPicked = db.prepare('SELECT 1 FROM league_teams WHERE player_id = ? AND session_id = ?').get(playerId, currentSession());
+    if (alreadyPicked) return res.status(400).json({ error: 'This player was already drafted by another team' });
   }
 
   db.prepare('INSERT INTO roster (session_id, player_id, role, slot) VALUES (?, ?, ?, ?)').run(currentSession(), playerId, 'bench', null);
@@ -234,12 +289,7 @@ app.post('/api/roster', (req, res) => {
     setPlayerDevo(devo);
   }
   // rookie draft: record the pick, then AI teams behind the user auto-draft
-  const isDrafting = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
-  if (isDrafting) {
-    // Verify the player is actually available (not already on an AI team)
-    const alreadyPicked = db.prepare('SELECT 1 FROM league_teams WHERE player_id = ? AND session_id = ?').get(playerId, currentSession());
-    if (alreadyPicked) return res.status(400).json({ error: 'This player was already drafted by another team' });
-
+  if (isRookieDraft) {
     const p = db.prepare('SELECT name, position, overall FROM players WHERE id = ?').get(playerId);
     const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
     picks.push({ team: getState('team_name') || 'My Team', player: p.name, position: p.position, overall: p.overall });
@@ -271,7 +321,7 @@ app.post('/api/draft/pass', (req, res) => {
 app.get('/api/roster', (req, res) => {
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
   const contracts = playerContracts();
-  res.json({ roster: roster.map(p => ({ ...playerBrief(p), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })), rosterSize: sim.ROSTER_SIZE, starterCount: sim.STARTER_COUNT });
+  res.json({ roster: roster.map(p => ({ ...stripAbility(playerBrief(p)), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })), rosterSize: sim.ROSTER_SIZE, starterCount: sim.STARTER_COUNT });
 });
 
 // ---- offseason free agency (dynasty) ----
@@ -287,12 +337,13 @@ function faRefreshes() {
   return parseInt(getState('fa_refreshes') || String(FA_MAX_REFRESH), 10);
 }
 
-// Generate the initial FA market: a fixed pool of candidates drawn once.
+// Generate a new FA market: a fixed pool of candidates drawn once.
+// NOTE: does NOT reset fa_refreshes — that counter is only (re)set when the market
+// is first built, so a manual refresh actually consumes a refresh.
 function buildFAMarket() {
   const pool = sim.freeAgentPool(db);
   const market = sim.shuffle(pool).slice(0, FA_MARKET_SIZE);
   setState('fa_market', JSON.stringify(market.map(p => p.id)));
-  setState('fa_refreshes', String(FA_MAX_REFRESH));
   return market;
 }
 
@@ -300,7 +351,10 @@ app.get('/api/freeagency', (req, res) => {
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
   const contracts = playerContracts();
   let market = faMarket();
-  if (!market.length) market = buildFAMarket();
+  if (!market.length) {
+    market = buildFAMarket();
+    setState('fa_refreshes', String(FA_MAX_REFRESH)); // full refreshes only on a fresh market
+  }
   const salTotal = roster.reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0);
   const signed = parseInt(getState('fa_signed') || '0', 10);
   // position needs
@@ -308,9 +362,9 @@ app.get('/api/freeagency', (req, res) => {
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needs = sim.POSITIONS.filter(pos => (posCount[pos] || 0) < 2);
   res.json({
-    roster: roster.map((p) => ({ ...playerBrief(p), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })),
+    roster: roster.map((p) => ({ ...stripAbility(playerBrief(p)), role: p.role, slot: p.slot, contract: contracts[p.name] ?? null })),
     rosterSize: sim.ROSTER_SIZE,
-    candidates: market.map(playerBrief),
+    candidates: stripAbilityAll(market.map(playerBrief)),
     salTotal,
     salCap: FA_SALARY_CAP,
     refreshes: faRefreshes(),
@@ -325,7 +379,7 @@ app.post('/api/fa/refresh', (req, res) => {
   if (left <= 0) return res.status(400).json({ error: 'No refreshes left' });
   setState('fa_refreshes', String(left - 1));
   const market = buildFAMarket();
-  res.json({ candidates: market.map(playerBrief), refreshes: left - 1 });
+  res.json({ candidates: stripAbilityAll(market.map(playerBrief)), refreshes: left - 1 });
 });
 
 app.post('/api/release', (req, res) => {
@@ -464,7 +518,12 @@ app.post('/api/reset', (req, res) => {
   const gm = gameMode || 'normal';
   const isDynasty = gm === 'dynasty';
   db.prepare('DELETE FROM roster WHERE session_id = ?').run(currentSession());
+  db.prepare('DELETE FROM league_teams WHERE session_id = ?').run(currentSession());
   db.prepare('DELETE FROM state WHERE session_id = ?').run(currentSession());
+  // A new run in the same session must start from a clean slate: drop this session's
+  // generated rookies too, so a fresh draft draws only from the real player pool
+  // (and resolveLeague won't rebuild an old dynasty league on season 1).
+  db.prepare('DELETE FROM players WHERE session_id = ?').run(currentSession());
   if (isDynasty || difficulty === 'hard') setState('difficulty', 'hard');
   setState('mode', isDynasty ? 'open' : (mode === 'blind' ? 'blind' : 'open'));
   setState('game_mode', gm);
@@ -480,6 +539,32 @@ app.post('/api/reset', (req, res) => {
 // players past their caliber-based retirement age, generate a rookie class, then run
 // the annual draft: the user picks first (one per retiree), then AI teams auto-pick.
 const DYNASTY_MAX_SEASONS = 10;
+
+// Append (or update-in-place) this season's outcome to the dynasty history.
+// Called from next-season, and also when a run ends WITHOUT calling next-season
+// (the final dynasty season, whether made or missed the playoffs), so the last
+// season is always recorded. Deduplicated by season number so the final-season
+// and next-season paths can both fire safely.
+function appendSeasonHistory(seasonNumber) {
+  const record = getState('season_record') ? JSON.parse(getState('season_record')) : null;
+  if (!record) return;
+  const playoff = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
+  const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
+  const champion = playoff && playoff.champion;
+  const userChampion = champion != null && !playoff.userEliminated;
+  const mvp = seasonResult && seasonResult.awards && seasonResult.awards.mvp ? seasonResult.awards.mvp.player : null;
+  let history = getState('season_history') ? JSON.parse(getState('season_history')) : [];
+  history = history.filter((h) => h.season !== seasonNumber); // dedup
+  history.push({
+    season: seasonNumber,
+    wins: record.wins, losses: record.losses,
+    result: userChampion ? 'champion' : (playoff && playoff.userEliminated ? `eliminated_r${playoff.userEliminatedRound || '?'}` : (playoff ? 'playoffs' : 'missed_playoffs')),
+    champion: champion || null, // champion team name
+    userChampion,
+    mvp,
+  });
+  setState('season_history', JSON.stringify(history));
+}
 
 app.post('/api/next-season', (req, res) => {
   const isDynasty = getState('game_mode') === 'dynasty';
@@ -502,24 +587,12 @@ app.post('/api/next-season', (req, res) => {
   }
   setState('prev_overalls', JSON.stringify(prevOveralls));
 
-  // append this season's outcome to the dynasty history before clearing transient state
+  // Record this season in the dynasty history (done here so the entry survives the
+  // transient-state reset below; the final dynasty season also appends via
+  // appendSeasonHistory from the run-end path, deduped by season number).
   const record = getState('season_record') ? JSON.parse(getState('season_record')) : null;
   const playoff = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
   const seasonResult = getState('season_result') ? JSON.parse(getState('season_result')) : null;
-  let history = getState('season_history') ? JSON.parse(getState('season_history')) : [];
-  if (record) {
-    const champion = playoff && playoff.champion;
-    const userChampion = champion != null && !playoff.userEliminated;
-    const mvp = seasonResult && seasonResult.awards && seasonResult.awards.mvp ? seasonResult.awards.mvp.player : null;
-    history.push({
-      season: seasonNumber,
-      wins: record.wins, losses: record.losses,
-      result: userChampion ? 'champion' : (playoff && playoff.userEliminated ? `eliminated_r${playoff.userEliminatedRound || '?'}` : (playoff ? 'playoffs' : 'missed_playoffs')),
-      champion: champion || null, // champion team name
-      userChampion,
-      mvp,
-    });
-  }
 
   // full draft order: lottery for non-playoff teams (weighted by record), then
   // playoff teams in reverse order. Worst non-playoff team gets best odds.
@@ -554,9 +627,10 @@ app.post('/api/next-season', (req, res) => {
     for (const t of nonPlayoff) {
       if (!drawn.has(t.name)) lotteryOrder.push(t);
     }
-    // playoff teams in reverse order (best record picks last)
-    const playoffOrder = playoff.reverse();
-    fullOrder = [...lotteryOrder, ...playoffOrder].map(t => t.name);
+    // playoff teams already sorted ascending by wins → worst playoff record picks
+    // first, best record picks last (no reverse — reversing would hand the top
+    // rookie to the best team).
+    fullOrder = [...lotteryOrder, ...playoff].map(t => t.name);
     // store lottery results for UI
     setState('draft_lottery', JSON.stringify(lotteryOrder.map((t, i) => ({
       pick: i + 1, team: t.name, wins: t.wins, isUser: t.name === userTeamName,
@@ -609,8 +683,9 @@ app.post('/api/next-season', (req, res) => {
   for (const p of myAverages) {
     if (!careerStats[p.name]) careerStats[p.name] = { seasons: [], totalPts: 0, totalGames: 0 };
     careerStats[p.name].seasons.push({ season: seasonNumber, pts: p.pts, trb: p.trb, ast: p.ast });
-    careerStats[p.name].totalPts += p.pts * 82;
-    careerStats[p.name].totalGames += 82;
+    const gamesPlayed = p.half === 'first' || p.half === 'second' ? HALF_GAMES : HALF_GAMES * 2; // full season = 82
+    careerStats[p.name].totalPts += p.pts * gamesPlayed;
+    careerStats[p.name].totalGames += gamesPlayed;
   }
   setState('career_stats', JSON.stringify(careerStats));
 
@@ -792,12 +867,12 @@ app.post('/api/next-season', (req, res) => {
   const totalRetirees = retirements.length + Object.values(aiNeeds).reduce((a, b) => a + b.length, 0);
 
   // reset transient season state, keep identity + dynasty + difficulty/mode + history
-  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'player_chemistry', 'prev_overalls', 'hall_of_fame', 'career_stats', 'league_news'];
+  const keep = ['team_name', 'conference', 'replaced_team', 'difficulty', 'mode', 'game_mode', 'player_ages', 'player_contracts', 'player_devo', 'player_morale', 'player_chemistry', 'prev_overalls', 'hall_of_fame', 'career_stats', 'league_news', 'season_history'];
   const keepVals = {};
   for (const k of keep) { const v = getState(k); if (v !== null) keepVals[k] = v; }
   db.prepare('DELETE FROM state WHERE session_id = ?').run(session);
   for (const [k, v] of Object.entries(keepVals)) setState(k, v);
-  setState('season_history', JSON.stringify(history));
+  appendSeasonHistory(seasonNumber);
   setState('season_number', String(seasonNumber + 1));
   setState('rerolls', String(sim.REROLLS_PER_RUN));
 
@@ -865,7 +940,7 @@ app.post('/api/next-season', (req, res) => {
     retirements,
     aiRetirees: aiNeeds,
     refused: refused || [],
-    offseasonPicks: retirements.length,
+    offseasonPicks: 1, // the annual rookie draft is always one pick per team
     seasonNumber: seasonNumber + 1,
     isFinal: isDynasty && seasonNumber >= dynastyMax,
     seasonRecap: {
@@ -1353,10 +1428,10 @@ function finishSeason(res, config, result, playerAverages) {
   const events = [];
   const myPlayers = playerAverages || [];
   // breakout star: top scorer on user team averaged 25+ ppg
-  const topScorer = myPlayers.sort((a, b) => b.pts - a.pts)[0];
+  const topScorer = [...myPlayers].sort((a, b) => b.pts - a.pts)[0];
   if (topScorer && topScorer.pts >= 25) events.push({ type: 'breakout', text: `${topScorer.name} averaged ${topScorer.pts.toFixed(1)} PPG — a breakout season!`, player: topScorer.name });
   // defensive anchor: player with most blocks+steals
-  const defPlayer = myPlayers.sort((a, b) => (b.stl + b.blk) - (a.stl + a.blk))[0];
+  const defPlayer = [...myPlayers].sort((a, b) => (b.stl + b.blk) - (a.stl + a.blk))[0];
   if (defPlayer && (defPlayer.stl + defPlayer.blk) >= 3) events.push({ type: 'defense', text: `${defPlayer.name} anchored the defense with ${defPlayer.stl.toFixed(1)} STL + ${defPlayer.blk.toFixed(1)} BLK per game.`, player: defPlayer.name });
   // team chemistry: if won 50+ games
   if (myStanding.wins >= 50) events.push({ type: 'chemistry', text: `The team clicked — ${myStanding.wins} wins! Chemistry was off the charts.` });
@@ -1400,6 +1475,12 @@ function finishSeason(res, config, result, playerAverages) {
   };
   setState('phase', 'season');
   setState('season_report', JSON.stringify(report));
+  // Record a dynasty season that missed the playoffs here — next-season appends the
+  // history entry for seasons that continue, but the final dynasty season never
+  // calls next-season, so without this its record would be missing from the history.
+  if (getState('game_mode') === 'dynasty' && !madePlayoffs) {
+    appendSeasonHistory(parseInt(getState('season_number') || '1', 10));
+  }
   res.json(report);
 }
 
@@ -1657,8 +1738,10 @@ app.get('/api/trade/pool', (req, res) => {
   const rawLeague = getState('season_league');
   if (!rawLeague) return res.status(400).json({ error: 'Start the season first' });
   const league = JSON.parse(rawLeague);
-  const myRoster = myRosterRows().map(brief);
-  const aiPlayers = league.teams.filter((t) => !t.isUser).flatMap((t) => t.players.map((p) => ({ ...brief(p), team: t.name }))).sort((a, b) => b.overall - a.overall);
+  const blind = isBlindMode();
+  const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
+  const myRoster = myRosterRows().map(brief).map(strip);
+  const aiPlayers = league.teams.filter((t) => !t.isUser).flatMap((t) => t.players.map((p) => ({ ...brief(p), team: t.name }))).map(strip).sort((a, b) => (b.overall || 0) - (a.overall || 0));
   res.json({ myRoster, aiPlayers, remainingPoints: MAX_TRADE_POINTS - tradePoints(), leagueTradeLog: getState('league_trade_log') ? JSON.parse(getState('league_trade_log')) : [] });
 });
 
@@ -1759,7 +1842,9 @@ app.post('/api/trade/offers', (req, res) => {
     if (!pkg) continue;
     offers.push({ aiTeam: t.name, aiPlayers: pkg.map(brief), aiTotal: tradeValue(pkg) });
   }
-  res.json({ offers, myPlayers: myPlayers.map(brief), myTotal: target });
+  const blind = isBlindMode();
+  const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
+  res.json({ offers: offers.map(o => ({ ...o, aiPlayers: o.aiPlayers.map(strip) })), myPlayers: myPlayers.map(brief).map(strip), myTotal: target });
 });
 
 // Incoming AI proposals (fixed 15, generated once at season start).
@@ -1769,7 +1854,11 @@ app.get('/api/trade/proposals', (req, res) => {
   // drop proposals whose target players are no longer on the roster (traded away)
   const myIds = new Set(myRosterRows().map((p) => p.id));
   const valid = proposals.filter((p) => p.myPlayers.every((x) => myIds.has(x.id)));
-  res.json({ proposals: valid });
+  // Blind mode: strip ability fields from proposal player data
+  const blind = isBlindMode();
+  const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
+  const out = valid.map(p => ({ ...p, myPlayers: p.myPlayers.map(strip), aiPlayers: p.aiPlayers.map(strip) }));
+  res.json({ proposals: out });
 });
 
 // ---- playoffs (round by round) ----
@@ -1868,6 +1957,12 @@ function simulateSeries(a, b, aBoost = 0, bBoost = 0) {
 }
 
 function seriesView(s) {
+  // Defensive: s may already be a processed view (from stored state.rounds)
+  // that lacks raw a/b team objects. Fall back to already-extracted fields.
+  const aName = s.a ? s.a.name : (s.aName || s.winner?.name || '?');
+  const bName = s.b ? s.b.name : (s.bName || s.loser?.name || '?');
+  const aRoster = s.a ? s.a.players.map(p => ({ name: p.name, position: p.position, overall: p.overall, rating: f1(sim.powerRating(p)) })) : (s.aRoster || []);
+  const bRoster = s.b ? s.b.players.map(p => ({ name: p.name, position: p.position, overall: p.overall, rating: f1(sim.powerRating(p)) })) : (s.bRoster || []);
   return {
     conf: s.conf,
     winner: s.winner.name, loser: s.loser.name,
@@ -1878,10 +1973,9 @@ function seriesView(s) {
     isUserSeries: s.isUserSeries,
     userIsWinner: s.userIsWinner,
     userStats: s.userStats,
-    aName: s.a.name, bName: s.b.name,
+    aName, bName,
     aStats: s.aStats, bStats: s.bStats,
-    aRoster: s.a.players.map(p => ({ name: p.name, position: p.position, overall: p.overall, rating: f1(sim.powerRating(p)) })),
-    bRoster: s.b.players.map(p => ({ name: p.name, position: p.position, overall: p.overall, rating: f1(sim.powerRating(p)) })),
+    aRoster, bRoster,
   };
 }
 
@@ -1923,13 +2017,49 @@ app.post('/api/playoffs/start', (req, res) => {
   });
 });
 
+// Detect opponent playing style from roster data.
+//   threeHeavy: team shoots a lot of 3s (avg starter 3P% ≥ 37%)
+//   starDominant: one star carries the team (top OVR gap to 5th ≥ 12)
+function detectTeamStyle(players) {
+  const starters = players.filter(p => p.role === 'starter');
+  const pool = starters.length >= 5 ? starters : players;
+  const avg3pt = pool.reduce((s, p) => s + (p.three_pct || 0.35), 0) / pool.length;
+  const sorted = [...players].sort((a, b) => b.overall - a.overall);
+  const starGap = sorted.length >= 5 ? sorted[0].overall - sorted[4].overall : 0;
+  return { threeHeavy: avg3pt >= 0.37, starDominant: starGap >= 12, avg3pt, starGap };
+}
+
+// Compute defense-strategy boost for a team against a specific opponent.
+// Returns { teamBoost, opponentPenalty } — the boost is how much the strategy
+// helps, the penalty is how much it hurts (both 0 or positive).
+//   man:   baseline, no special effect (+0 against everyone)
+//   zone:  strong vs 3PT-heavy (+2.0), weak vs driving/inside teams (-1.0)
+//   double: strong vs single-star teams (+2.0), weak vs balanced rosters (-0.5)
+function strategyBoost(strategy, opponent) {
+  if (strategy === 'zone') {
+    if (opponent.threeHeavy) return { teamBoost: 2.0, desc: '联防有效：限制对手三分 (+2.0)' };
+    if (!opponent.threeHeavy && opponent.avg3pt < 0.34) return { teamBoost: -1.0, desc: '联防失效：对手主打突破 (-1.0)' };
+    return { teamBoost: 0.3, desc: '联防效果一般 (+0.3)' };
+  }
+  if (strategy === 'double') {
+    if (opponent.starDominant) return { teamBoost: 2.0, desc: '包夹有效：限制对手核心 (+2.0)' };
+    if (!opponent.starDominant && opponent.starGap < 6) return { teamBoost: -0.5, desc: '包夹失效：对手多点开花 (-0.5)' };
+    return { teamBoost: 0.3, desc: '包夹效果一般 (+0.3)' };
+  }
+  return { teamBoost: 0, desc: '人盯人（默认）' };
+}
+
 app.post('/api/playoffs/strategy', (req, res) => {
   const { strategy } = req.body || {};
   const valid = ['man', 'zone', 'double'];
   if (!valid.includes(strategy)) return res.status(400).json({ error: 'Invalid strategy' });
   setState('defense_strategy', strategy);
-  const bonus = strategy === 'zone' ? '+1.5 strength vs 3PT-heavy teams' : strategy === 'double' ? '+1.0 strength vs star-dominated teams' : 'No bonus (default)';
-  res.json({ ok: true, strategy, bonus });
+  const desc = strategy === 'zone'
+    ? '联防: +2.0 vs 三分大队, -1.0 vs 突破型, +0.3 vs 其他'
+    : strategy === 'double'
+      ? '包夹核心: +2.0 vs 单核球队, -0.5 vs 均衡球队, +0.3 vs 其他'
+      : '人盯人（默认，无加成无惩罚）';
+  res.json({ ok: true, strategy, bonus: desc });
 });
 
 app.post('/api/playoffs/round', (req, res) => {
@@ -1938,26 +2068,29 @@ app.post('/api/playoffs/round', (req, res) => {
   const state = JSON.parse(raw);
   if (state.champion) return res.status(400).json({ error: 'Playoffs already finished' });
 
-  // Apply defensive strategy: each has a trade-off, and AI teams get the same bonus.
-  // man: +0.5 baseline (no weakness)
-  // zone: +1.5 vs 3PT-heavy teams, -1.0 vs driving teams
-  // double: +1.0 vs single-star teams, -0.5 vs balanced teams
+  // Apply defensive strategy: each has a trade-off based on OPPONENT STYLE.
+  //   man:   baseline, +0 against everyone
+  //   zone:  strong vs 3PT-heavy (+2.0), weak vs driving/inside (-1.0)
+  //   double: strong vs single-star (+2.0), weak vs balanced rosters (-0.5)
+  // Both user and AI use the same detection; the user's explicit choice adds a
+  // small edge (+0.5) as "game-planning bonus".
   const strategy = getState('defense_strategy') || 'man';
   const matchups = matchupsFor(state);
   const results = matchups.map(m => {
     let aBoost = 0, bBoost = 0;
-    // Both user and AI get strategy bonus (fair)
-    if (strategy === 'zone') {
-      aBoost = bBoost = 0.5; // moderate baseline, real bonus depends on opponent style
-    } else if (strategy === 'double') {
-      aBoost = bBoost = 0.3;
-    }
-    // User's explicit strategy gives a small edge
-    if (m.a.isUser || m.b.isUser) {
-      const userExtra = strategy === 'zone' ? 1.0 : strategy === 'double' ? 0.7 : 0;
-      if (m.a.isUser) aBoost += userExtra;
-      else bBoost += userExtra;
-    }
+    // Detect each team's style from their roster
+    const aStyle = detectTeamStyle(m.a.players);
+    const bStyle = detectTeamStyle(m.b.players);
+    // A's strategy (always 'man' for AI, user's choice for user team)
+    const aStrategy = m.a.isUser ? strategy : 'man';
+    const bStrategy = m.b.isUser ? strategy : 'man';
+    const aResult = strategyBoost(aStrategy, bStyle); // A defends against B's style
+    const bResult = strategyBoost(bStrategy, aStyle); // B defends against A's style
+    aBoost = aResult.teamBoost;
+    bBoost = bResult.teamBoost;
+    // User's explicit strategy adds a small "game-planning" edge
+    if (m.a.isUser && strategy !== 'man') aBoost += 0.5;
+    if (m.b.isUser && strategy !== 'man') bBoost += 0.5;
     return { ...simulateSeries(m.a, m.b, aBoost, bBoost), conf: m.conf, a: m.a, b: m.b };
   });
 
@@ -2023,6 +2156,11 @@ app.post('/api/playoffs/round', (req, res) => {
     setState('playoff_result', JSON.stringify({ champion: state.champion, userEliminated: state.userEliminated, userEliminatedRound: state.userEliminatedRound || null }));
     setState('playoff_averages', JSON.stringify(playoffAverages));
     upsertCurrentTeam();
+    // record the season in the dynasty history once the playoffs are over (a final
+    // dynasty season never calls next-season, so this is its only history entry)
+    if (getState('game_mode') === 'dynasty') {
+      appendSeasonHistory(parseInt(getState('season_number') || '1', 10));
+    }
   }
 
   const nextMatchups = state.champion ? [] : matchupsFor(state).map(m => ({ conf: m.conf, a: teamView(m.a), b: teamView(m.b) }));
@@ -2086,7 +2224,9 @@ app.get('/api/resume', (req, res) => {
   } else if (phase === 'playoffs') {
     out.playoffs = playoffsView();
   }
-  out.offseasonPicks = parseInt(getState('offseason_picks') || '0', 10);
+  // The annual rookie draft is a normal phase-'draft' but with a live draft class;
+  // flag it so the resume label can tell it apart from the opening draft.
+  out.offseasonPicks = (getState('draft_class') && JSON.parse(getState('draft_class')).length > 0) ? 1 : 0;
   res.json(out);
 });
 

@@ -78,3 +78,9 @@ CREATE TABLE IF NOT EXISTS state (
   value TEXT,
   PRIMARY KEY (session_id, key)
 );
+
+-- Indexes for frequent session-scoped queries
+CREATE INDEX IF NOT EXISTS idx_roster_session ON roster(session_id);
+CREATE INDEX IF NOT EXISTS idx_league_session ON league_teams(session_id);
+CREATE INDEX IF NOT EXISTS idx_state_session ON state(session_id, key);
+CREATE INDEX IF NOT EXISTS idx_players_session ON players(session_id);
