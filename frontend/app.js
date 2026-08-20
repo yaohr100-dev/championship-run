@@ -318,6 +318,7 @@ $('continue-run').addEventListener('click', async () => {
     switch (r.phase) {
       case 'draft': show('draft'); await loadDraft(); break;
       case 'lineup': show('lineup'); await loadLineup(); break;
+      case 'freeagency': show('freeagency'); await loadFreeAgency(); break;
       case 'preseason': $('simulate-season').hidden = false; $('season-result').innerHTML = ''; show('season'); break;
       case 'midseason': show('season'); renderMidSeason(r.midseason); break;
       case 'season': show('season'); renderSeason(r.season); break;
@@ -339,14 +340,30 @@ function resumePlayoffs(p) {
         <details><summary>${m.b.isUser ? `<span class="user-team">★ ${m.b.name}</span> (${t('misc.you')})` : m.b.name}</summary><div class="roster">${m.b.roster.map(rosterLine).join('<br>')}</div></details>
       </div>
     </div>`).join('');
-  let html = `<h3>Playoff Bracket</h3>${renderBracket(p.rounds, p.nextMatchups)}`;
-  if (p.userEliminated) html += `<p class="muted eliminated-note">You were eliminated in round ${p.userEliminatedRound}. The playoffs continue without you.</p>`;
-  html += `<h3>Round ${p.round}</h3><div class="bracket">${matchups}</div><button id="simulate-round" class="primary">Simulate Round ${p.round}</button>`;
+  let html = `<h3>${t('playoffs.bracket')}</h3>${renderBracket(p.rounds, p.nextMatchups)}`;
+  if (p.userEliminated) html += `<p class="muted eliminated-note">${t('playoffs.eliminated')} ${p.userEliminatedRound} ${t('playoffs.eliminatedEnd')}</p>`;
+  html += `<h3>${t('playoffs.round')} ${p.round}</h3><div class="bracket">${matchups}</div>`;
+  html += `<div class="panel" style="margin-bottom:12px"><b>🛡️ 防守策略</b><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><label class="inline"><input type="radio" name="defense" value="man" checked> 人盯人</label><label class="inline"><input type="radio" name="defense" value="zone"> 联防</label><label class="inline"><input type="radio" name="defense" value="double"> 包夹核心</label></div></div>`;
+  html += `<button id="simulate-round" class="primary">${t('playoffs.simulateRound')} ${p.round}</button>`;
   $('playoffs-body').innerHTML = html;
-  $('simulate-round').addEventListener('click', async () => {
-    const j = await api('/api/playoffs/round', { method: 'POST' });
-    renderRoundResults(j);
-  });
+  const simBtn = document.getElementById('simulate-round');
+  if (simBtn) {
+    simBtn.addEventListener('click', async () => {
+      if (simBtn.disabled) return;
+      simBtn.disabled = true;
+      simBtn.textContent = t('misc.simulating');
+      try {
+        const strategy = document.querySelector('input[name="defense"]:checked')?.value || 'man';
+        await api('/api/playoffs/strategy', { method: 'POST', body: { strategy } });
+        const j = await api('/api/playoffs/round', { method: 'POST' });
+        renderRoundResults(j);
+      } catch (e) {
+        simBtn.disabled = false;
+        simBtn.textContent = `${t('playoffs.simulateRound')} ${p.round}`;
+        toast(e.message, 'error');
+      }
+    });
+  }
 }
 
 // ---------- Back up / restore ----------
