@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS players (
   mp REAL NOT NULL DEFAULT 0,   -- real per-game minutes (from mp.txt); 0 = estimate
   fg_pct REAL NOT NULL,
   three_pct REAL NOT NULL,
-  ft_pct REAL NOT NULL
+  ft_pct REAL NOT NULL,
+  session_id TEXT               -- non-null for generated rookies (scoped per session)
 );
 
 -- The current run's drafted roster (max 10), scoped per session
