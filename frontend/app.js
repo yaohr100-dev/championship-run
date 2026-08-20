@@ -82,8 +82,8 @@ async function loadNbaTeams() {
   const { teams } = await api('/api/nba-teams');
   const sel = $('replace-team');
   const byName = (a, b) => a.name.localeCompare(b.name);
-  const east = teams.filter((t) => t.conf === 'East').sort(byName);
-  const west = teams.filter((t) => t.conf === 'West').sort(byName);
+  const east = teams.filter((tm) => tm.conf === 'East').sort(byName);
+  const west = teams.filter((tm) => tm.conf === 'West').sort(byName);
   const group = (label, list) => {
     const og = document.createElement('optgroup');
     og.label = `${label} Conference`;
@@ -98,10 +98,10 @@ async function loadNbaTeams() {
   sel.appendChild(group('Eastern', east));
   sel.appendChild(group('Western', west));
   state.replacedTeam = sel.value;
-  state.conference = east.some((t) => t.name === sel.value) ? 'East' : 'West';
+  state.conference = east.some((tm) => tm.name === sel.value) ? 'East' : 'West';
   sel.addEventListener('change', () => {
     state.replacedTeam = sel.value;
-    state.conference = teams.find((t) => t.name === sel.value).conf;
+    state.conference = teams.find((tm) => tm.name === sel.value).conf;
   });
 }
 
@@ -190,20 +190,20 @@ function renderTrophies(trophies) {
   const group = (title, list, item) => list.length
     ? `<div class="trophy-group"><div class="trophy-title">${title} × ${list.length}</div>${list.map(item).join('')}</div>`
     : '';
-  const season = (t) => (t.season_number > 0 ? ` <span class="muted">· S${t.season_number}</span>` : '');
-  const teamItem = (t) => `<div class="trophy-item">${t.team_name}${season(t)}</div>`;
-  const playerItem = (t) => `<div class="trophy-item">${t.player_name} <span class="muted">(${t.team_name})</span>${season(t)}</div>`;
+  const season = (tr) => (tr.season_number > 0 ? ` <span class="muted">· S${tr.season_number}</span>` : '');
+  const teamItem = (tr) => `<div class="trophy-item">${tr.team_name}${season(tr)}</div>`;
+  const playerItem = (tr) => `<div class="trophy-item">${tr.player_name} <span class="muted">(${tr.team_name})</span>${season(tr)}</div>`;
   box.innerHTML =
-    group('🏆 ' + t('trophy.champion'), trophies.filter((t) => t.type === 'championship'), teamItem) +
-    group('🏆 ' + t('trophy.eastChamp'), trophies.filter((t) => t.type === 'east_champion'), teamItem) +
-    group('🏆 ' + t('trophy.westChamp'), trophies.filter((t) => t.type === 'west_champion'), teamItem) +
-    group('🏆 ' + t('trophy.mvp'), trophies.filter((t) => t.type === 'season_mvp'), playerItem) +
-    group('🛡️ ' + t('trophy.dpoy'), trophies.filter((t) => t.type === 'dpoy'), playerItem) +
-    group('🔥 ' + t('trophy.sixMan'), trophies.filter((t) => t.type === 'six_man'), playerItem) +
-    group('🌟 ' + t('trophy.allNba'), trophies.filter((t) => t.type === 'all_nba'), playerItem) +
-    group('🏅 ' + t('trophy.finalsMvp'), trophies.filter((t) => t.type === 'finals_mvp'), playerItem) +
-    group('🏅 ' + t('trophy.eastMvp'), trophies.filter((t) => t.type === 'east_mvp'), playerItem) +
-    group('🏅 ' + t('trophy.westMvp'), trophies.filter((t) => t.type === 'west_mvp'), playerItem);
+    group('🏆 ' + t('trophy.champion'), trophies.filter((tr) => tr.type === 'championship'), teamItem) +
+    group('🏆 ' + t('trophy.eastChamp'), trophies.filter((tr) => tr.type === 'east_champion'), teamItem) +
+    group('🏆 ' + t('trophy.westChamp'), trophies.filter((tr) => tr.type === 'west_champion'), teamItem) +
+    group('🏆 ' + t('trophy.mvp'), trophies.filter((tr) => tr.type === 'season_mvp'), playerItem) +
+    group('🛡️ ' + t('trophy.dpoy'), trophies.filter((tr) => tr.type === 'dpoy'), playerItem) +
+    group('🔥 ' + t('trophy.sixMan'), trophies.filter((tr) => tr.type === 'six_man'), playerItem) +
+    group('🌟 ' + t('trophy.allNba'), trophies.filter((tr) => tr.type === 'all_nba'), playerItem) +
+    group('🏅 ' + t('trophy.finalsMvp'), trophies.filter((tr) => tr.type === 'finals_mvp'), playerItem) +
+    group('🏅 ' + t('trophy.eastMvp'), trophies.filter((tr) => tr.type === 'east_mvp'), playerItem) +
+    group('🏅 ' + t('trophy.westMvp'), trophies.filter((tr) => tr.type === 'west_mvp'), playerItem);
 }
 
 async function loadHallOfFame() {
@@ -820,7 +820,7 @@ function renderTradeUI() {
     panel.querySelectorAll('.trade-tab').forEach((b) => b.addEventListener('click', () => {
       panel.querySelectorAll('.trade-tab').forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
-      ['propose', 'shop', 'incoming'].forEach((t) => { $('trade-' + t).hidden = t !== b.dataset.tab; });
+      ['propose', 'shop', 'incoming'].forEach((tab) => { $('trade-' + tab).hidden = tab !== b.dataset.tab; });
       if (b.dataset.tab === 'incoming') renderIncoming();
     }));
     renderPropose(myRoster, aiPlayers, teams);
@@ -839,7 +839,7 @@ function renderPropose(myRoster, aiPlayers, teams) {
   filterRow.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px';
 
   const teamSel = document.createElement('select');
-  teamSel.innerHTML = `<option value="">${t('trade.allTeams')}</option>` + teams.map((t) => `<option>${t}</option>`).join('');
+  teamSel.innerHTML = `<option value="">${t('trade.allTeams')}</option>` + teams.map((tm) => `<option>${tm}</option>`).join('');
 
   const searchInput = document.createElement('input');
   searchInput.type = 'text';
@@ -950,8 +950,8 @@ function rosterLine(p) {
   return `${p.role === 'starter' ? '★ ' : ''}${p.name} (${p.position}${isBlind() ? '' : `, ${p.overall}`})`;
 }
 
-function teamRosterHtml(t) {
-  const list = t.roster || t.starters || [];
+function teamRosterHtml(tm) {
+  const list = tm.roster || tm.starters || [];
   return list.map(rosterLine).join('<br>');
 }
 
@@ -962,14 +962,14 @@ function standingsHtml(east, west) {
     <div class="table-scroll"><table>
       <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th>${blind ? '' : '<th>Str</th>'}</tr></thead>
       <tbody>${teams.map((t, i) => `
-        <tr${t.isUser ? ' class="me"' : ''}>
+        <tr${tm.isUser ? ' class="me"' : ''}>
           <td>${i + 1}</td>
           <td>
-            <details><summary>${t.name}${t.isUser ? ` (${t('misc.you')})` : ''}</summary>
-              <div class="roster">${teamRosterHtml(t)}</div>
+            <details><summary>${tm.name}${tm.isUser ? ` (${t('misc.you')})` : ''}</summary>
+              <div class="roster">${teamRosterHtml(tm)}</div>
             </details>
           </td>
-          <td class="w">${t.wins}</td><td class="l">${t.losses}</td>${blind ? '' : `<td>${t.strength}</td>`}
+          <td class="w">${tm.wins}</td><td class="l">${tm.losses}</td>${blind ? '' : `<td>${tm.strength}</td>`}
         </tr>`).join('')}</tbody>
     </table></div>`;
   return confTable('Eastern', east) + confTable('Western', west);
