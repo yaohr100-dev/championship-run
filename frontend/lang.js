@@ -126,6 +126,8 @@ const LANG = {
     'trade.accepted': 'Trade accepted',
     'trade.rejected': 'Trade rejected',
     'trade.needSame': 'Pick the same number (1-3) on both sides.',
+    'trade.allTeams': 'All teams',
+    'trade.searchPlayer': 'Search player name…',
 
     // ---- Playoffs ----
     'playoffs.title': 'Playoffs',
@@ -370,6 +372,8 @@ const LANG = {
     'trade.accepted': '交易达成',
     'trade.rejected': '交易被拒绝',
     'trade.needSame': '请选择同等数量（1-3人）。',
+    'trade.allTeams': '全部球队',
+    'trade.searchPlayer': '搜索球员姓名…',
     'playoffs.title': '季后赛',
     'playoffs.settingUp': '正在设置对阵…',
     'playoffs.bracket': '季后赛对阵',

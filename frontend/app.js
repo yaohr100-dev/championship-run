@@ -833,17 +833,43 @@ function renderTradeUI() {
 function renderPropose(myRoster, aiPlayers, teams) {
   const box = $('trade-propose');
   const myList = tradeChecklist(myRoster, t('trade.yourPlayers'));
+
+  // Team selector + search input (two ways to filter: by team or by name)
+  const filterRow = document.createElement('div');
+  filterRow.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px';
+
   const teamSel = document.createElement('select');
-  teamSel.innerHTML = teams.map((t) => `<option>${t}</option>`).join('');
+  teamSel.innerHTML = `<option value="">${t('trade.allTeams')}</option>` + teams.map((t) => `<option>${t}</option>`).join('');
+
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = t('trade.searchPlayer');
+  searchInput.style.cssText = 'flex:1;min-width:120px;font-size:13px;padding:7px 10px';
+
+  filterRow.append(teamSel, searchInput);
+
   const aiList = document.createElement('div');
   aiList.className = 'trade-checkbox-list';
+
   const refreshAi = () => {
     const tm = teamSel.value;
+    const q = (searchInput.value || '').toLowerCase().trim();
     const blind = isBlind();
-    aiList.innerHTML = `<label class="trade-label">${tm} ${t('trade.pickSame')}</label>` + aiPlayers.filter((p) => p.team === tm).map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}</span></label>`).join('');
+    let filtered = aiPlayers;
+    if (tm) filtered = filtered.filter((p) => p.team === tm);
+    if (q) filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
+    if (!filtered.length) {
+      aiList.innerHTML = '<p class="muted" style="padding:8px">No matching players.</p>';
+    } else {
+      aiList.innerHTML = `<label class="trade-label">${t('trade.pickSame')}</label>` +
+        filtered.map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall} · ${p.team}</span>`}</span></label>`).join('');
+    }
   };
   teamSel.addEventListener('change', refreshAi);
+  let searchTimer = null;
+  searchInput.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(refreshAi, 200); });
   refreshAi();
+
   const msg = document.createElement('div');
   msg.className = 'muted trade-msg';
   const btn = document.createElement('button');
@@ -856,7 +882,7 @@ function renderPropose(myRoster, aiPlayers, teams) {
     doTrade(myIds, aiIds, msg);
   });
   box.innerHTML = '';
-  box.append(myList, teamSel, aiList, btn, msg);
+  box.append(myList, filterRow, aiList, btn, msg);
 }
 
 function renderShop(myRoster) {
