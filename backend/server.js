@@ -333,7 +333,16 @@ app.post('/api/release', (req, res) => {
   if (!playerId) return res.status(400).json({ error: 'playerId required' });
   const session = currentSession();
   const row = db.prepare('SELECT p.name FROM roster r JOIN players p ON p.id = r.player_id WHERE r.player_id = ? AND r.session_id = ?').get(playerId, session);
-  if (!row) return res.status(400).json({ error: 'Player not on your roster' });
+  if (!row) {
+    // Player not on roster — already released or removed. Still clear contract.
+    const pname = db.prepare('SELECT name FROM players WHERE id = ?').get(playerId);
+    if (pname) {
+      const contracts = playerContracts();
+      delete contracts[pname.name];
+      setPlayerContracts(contracts);
+    }
+    return res.json({ ok: true });
+  }
   db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(playerId, session);
   const contracts = playerContracts();
   delete contracts[row.name];
