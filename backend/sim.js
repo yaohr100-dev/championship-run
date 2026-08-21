@@ -81,13 +81,20 @@ function moraleFactor(streak) {
 // with a small cubic term so the late-30s decline accelerates gently. Returns a
 // float — the final OVR is rounded in effectiveOverall, so year-to-year ability
 // changes are gradual rather than jagged.
+// Age curve for a full career, C1-continuous (slope 0 at every join), replacing the
+// old step function. Design goals:
+//   • Prime PLATEAU at 26-29 (delta 0) — a player's best 4 years, not a single peak.
+//   • Growth before the prime is a deep quadratic so young prospects have real upside
+//     (a 20-yo at 85 peaks ~95; a 19-yo franchise at 86 caps at 99).
+//   • Decline after the prime is a quadratic + small cubic that accelerates gently
+//     into the late 30s (30 → -0.1, 35 → -4.5, 40 → -15.9) — no cliff at 33.
+// Returns a float; effectiveOverall rounds the final OVR, so year-to-year changes
+// are gradual.
 function ageDelta(age) {
-  const d = age - 27;
-  // Growth side is a fairly deep quadratic so young prospects have real upside
-  // (a 20-year-old at 85 peaks ~96 instead of a flat 92); decline side keeps the
-  // gentle smooth drop.
-  if (d <= 0) return -0.17 * d * d;
-  return -(0.10 * d * d + 0.0015 * d * d * d);
+  if (age < 26) return -0.22 * Math.pow(26 - age, 2); // growth (deep, tapers toward prime)
+  if (age <= 29) return 0;                             // prime plateau 26-29
+  const d = age - 29;
+  return -(0.12 * d * d + 0.001 * d * d * d);          // decline (gently accelerating)
 }
 
 // ---- EPM derivation from current OVR ----
