@@ -573,7 +573,7 @@ function buildSchedule(teams) {
 // real chance against a raw-scoring teammate, while a true star (high box AND high
 // EPM) still takes it most nights (~70%). A hot 2nd/3rd option or a close race lets
 // someone else steal it — previously the leading scorer won ~97% of games.
-const STAR_EPM_WEIGHT = 2;
+const STAR_EPM_WEIGHT = 1;
 function gameStar(stats) {
   const scored = stats.map((s) => ({ s, score: s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk + (s.epm || 0) * STAR_EPM_WEIGHT }));
   if (!scored.length) return null;
