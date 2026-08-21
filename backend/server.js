@@ -348,8 +348,11 @@ function faMarket() {
 function faMarketPlayers() {
   const ids = faMarket();
   if (!ids.length) return [];
+  // Drop any market player who has since been signed onto the roster, so their card
+  // (with the Sign button) disappears instead of staying clickable after signing.
+  const rosterIds = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map((r) => r.player_id));
   const byId = new Map(db.prepare(`SELECT * FROM players WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((p) => [p.id, p]));
-  return ids.map((id) => byId.get(id)).filter(Boolean);
+  return ids.map((id) => byId.get(id)).filter((p) => p && !rosterIds.has(p.id));
 }
 function faRefreshes() {
   return parseInt(getState('fa_refreshes') || String(FA_MAX_REFRESH), 10);
@@ -428,6 +431,11 @@ app.post('/api/sign', (req, res) => {
   const session = currentSession();
   const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(session).c;
   if (count >= sim.ROSTER_SIZE) return res.status(400).json({ error: 'Roster full — release a player first' });
+  // prevent signing a player already on the roster — a stale FA card double-click
+  // would otherwise insert a duplicate roster row for the same player
+  if (db.prepare('SELECT 1 FROM roster WHERE player_id = ? AND session_id = ?').get(playerId, session)) {
+    return res.status(400).json({ error: 'This player is already on your roster' });
+  }
   const p = db.prepare('SELECT name, age, session_id, overall, epm FROM players WHERE id = ?').get(playerId);
   if (!p) return res.status(400).json({ error: 'Player not found' });
   // FA salary cap check
