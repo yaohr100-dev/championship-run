@@ -75,25 +75,16 @@ function moraleFactor(streak) {
 // Prime: 26-28 (3-year peak window).
 // Decline: gentle 29-31 (-1/yr), moderate 32-34 (-2/yr), steep 35-37 (-3/yr),
 // brutal 38+ (-2/yr continuing, no flat floor).
+// Smooth career curve with a peak at ~27, C1-continuous there (slope 0). Replaces
+// the old step function whose decline jumped from -1/yr to -2/yr at age 33 and had
+// a hard flat 26-28 plateau. Growth is a quadratic rise; decline is a quadratic
+// with a small cubic term so the late-30s decline accelerates gently. Returns a
+// float — the final OVR is rounded in effectiveOverall, so year-to-year ability
+// changes are gradual rather than jagged.
 function ageDelta(age) {
-  if (age <= 20) return -6;
-  if (age <= 21) return -5;
-  if (age <= 22) return -4;
-  if (age <= 23) return -3;
-  if (age <= 24) return -2;
-  if (age <= 25) return -1;
-  if (age <= 28) return 0;    // peak: 26-28
-  if (age <= 29) return -1;
-  if (age <= 30) return -2;
-  if (age <= 31) return -3;
-  if (age <= 32) return -4;
-  if (age <= 33) return -6;
-  if (age <= 34) return -8;
-  if (age <= 35) return -10;
-  if (age <= 36) return -12;
-  if (age <= 37) return -14;
-  // 38+: continues declining -2/yr, no flat floor
-  return -14 - (age - 37) * 2;
+  const d = age - 27;
+  if (d <= 0) return -0.12 * d * d;
+  return -(0.10 * d * d + 0.0015 * d * d * d);
 }
 
 // ---- EPM derivation from current OVR ----
