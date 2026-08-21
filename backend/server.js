@@ -1391,24 +1391,26 @@ function formatUserAverages(entries, userTeam, div = 1) {
 }
 
 // Generate a season goal based on team strength relative to the league.
-// Returns { type, target, description, phase }.
+// Returns { type, target, phase } — the DESCRIPTION is localized on the client
+// (the backend must not bake in a language).
 //   phase: 'regular' = evaluable after regular season; 'playoff' = only after playoffs.
 function generateSeasonGoal(teamStrength, leagueAvg) {
   const diff = teamStrength - leagueAvg;
-  if (diff > 5) return { type: 'champion', target: 0, description: 'Win the championship', phase: 'playoff' };
-  if (diff > 2) return { type: 'conf_finals', target: 0, description: 'Reach the conference finals', phase: 'playoff' };
-  if (diff > -1) return { type: 'playoffs', target: 0, description: 'Make the playoffs', phase: 'regular' };
-  if (diff > -4) return { type: 'wins', target: 42, description: 'Win at least 42 games', phase: 'regular' };
-  return { type: 'wins', target: 35, description: 'Win at least 35 games', phase: 'regular' };
+  if (diff > 5) return { type: 'champion', target: 0, phase: 'playoff' };
+  if (diff > 2) return { type: 'conf_finals', target: 0, phase: 'playoff' };
+  if (diff > -1) return { type: 'playoffs', target: 0, phase: 'regular' };
+  if (diff > -4) return { type: 'wins', target: 42, phase: 'regular' };
+  return { type: 'wins', target: 35, phase: 'regular' };
 }
 
-// Evaluate season goal. For playoff-phase goals, returns null if playoffs haven't
-// finished yet (caller should wait).
+// Evaluate season goal. Returns null if playoffs haven't finished yet for a
+// playoff-phase goal (caller should wait). Result is STRUCTURED ({ met, reasonKey,
+// wins, target }) — the client localizes the reason, so no hardcoded language here.
 function evaluateGoal(goal, result, conf) {
-  if (!goal) return { met: false, reason: 'No goal set' };
+  if (!goal) return { met: false, reasonKey: 'none', wins: null, target: null };
   const allTeams = [...result.east, ...result.west];
   const me = allTeams.find(t => t.isUser);
-  if (!me) return { met: false, reason: 'Team not found' };
+  if (!me) return { met: false, reasonKey: 'notFound', wins: null, target: null };
   const madePlayoffs = (conf === 'East' ? result.east : result.west).slice(0, 8).some(t => t.isUser);
   const playoffResult = getState('playoff_result') ? JSON.parse(getState('playoff_result')) : null;
 
@@ -1418,20 +1420,20 @@ function evaluateGoal(goal, result, conf) {
   switch (goal.type) {
     case 'champion': {
       const userChamp = playoffResult && playoffResult.champion && !playoffResult.userEliminated;
-      return { met: !!userChamp, reason: userChamp ? 'Won the championship!' : 'Did not win the championship' };
+      return { met: !!userChamp, reasonKey: userChamp ? 'champion' : 'champion_miss', wins: null, target: null };
     }
     case 'conf_finals': {
       const reached = playoffResult && (!playoffResult.userEliminated || (playoffResult.userEliminatedRound || 0) >= 3);
-      return { met: !!reached, reason: reached ? 'Reached conference finals' : 'Eliminated before conference finals' };
+      return { met: !!reached, reasonKey: reached ? 'conf_finals' : 'conf_finals_miss', wins: null, target: null };
     }
     case 'playoffs': {
-      return { met: madePlayoffs, reason: madePlayoffs ? 'Made the playoffs' : 'Missed the playoffs' };
+      return { met: madePlayoffs, reasonKey: madePlayoffs ? 'playoffs' : 'playoffs_miss', wins: null, target: null };
     }
     case 'wins': {
       const met = me.wins >= goal.target;
-      return { met, reason: met ? `Won ${me.wins} games (target: ${goal.target})` : `Only won ${me.wins} games (target: ${goal.target})` };
+      return { met, reasonKey: met ? 'wins' : 'wins_miss', wins: me.wins, target: goal.target };
     }
-    default: return { met: false, reason: 'Unknown goal' };
+    default: return { met: false, reasonKey: 'unknown', wins: null, target: null };
   }
 }
 
@@ -1448,19 +1450,20 @@ function finishSeason(res, config, result, playerAverages) {
   const goal = getState('season_goal') ? JSON.parse(getState('season_goal')) : null;
   const goalResult = goal && goal.phase === 'playoff' ? null : evaluateGoal(goal, result, conf);
 
-  // generate mid-season narrative events from accumulated stats
+  // generate mid-season narrative events from accumulated stats.
+  // Structured (type + data) so the client localizes them; no hardcoded language.
   const events = [];
   const myPlayers = playerAverages || [];
   // breakout star: top scorer on user team averaged 25+ ppg
   const topScorer = [...myPlayers].sort((a, b) => b.pts - a.pts)[0];
-  if (topScorer && topScorer.pts >= 25) events.push({ type: 'breakout', text: `${topScorer.name} averaged ${topScorer.pts.toFixed(1)} PPG — a breakout season!`, player: topScorer.name });
+  if (topScorer && topScorer.pts >= 25) events.push({ type: 'breakout', player: topScorer.name, pts: topScorer.pts.toFixed(1) });
   // defensive anchor: player with most blocks+steals
   const defPlayer = [...myPlayers].sort((a, b) => (b.stl + b.blk) - (a.stl + a.blk))[0];
-  if (defPlayer && (defPlayer.stl + defPlayer.blk) >= 3) events.push({ type: 'defense', text: `${defPlayer.name} anchored the defense with ${defPlayer.stl.toFixed(1)} STL + ${defPlayer.blk.toFixed(1)} BLK per game.`, player: defPlayer.name });
+  if (defPlayer && (defPlayer.stl + defPlayer.blk) >= 3) events.push({ type: 'defense', player: defPlayer.name, stl: defPlayer.stl.toFixed(1), blk: defPlayer.blk.toFixed(1) });
   // team chemistry: if won 50+ games
-  if (myStanding.wins >= 50) events.push({ type: 'chemistry', text: `The team clicked — ${myStanding.wins} wins! Chemistry was off the charts.` });
+  if (myStanding.wins >= 50) events.push({ type: 'chemistry', wins: myStanding.wins });
   // struggle: if lost 50+ games
-  if ((82 - myStanding.wins) >= 50) events.push({ type: 'struggle', text: `A brutal ${myStanding.wins}-${82 - myStanding.wins} season. The rebuild is on.` });
+  if ((82 - myStanding.wins) >= 50) events.push({ type: 'struggle', wins: myStanding.wins, losses: 82 - myStanding.wins });
   setState('season_game_log', JSON.stringify(myStanding.gameLog || []));
   setState('season_averages', JSON.stringify(playerAverages));
   setState('season_standings', JSON.stringify({

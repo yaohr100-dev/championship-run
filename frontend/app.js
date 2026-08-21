@@ -434,10 +434,14 @@ async function loadDraft() {
     if (j.canPass) {
       $('draft-pass')?.addEventListener('click', async () => {
         if (draftBusy) return;
-        await api('/api/draft/pass', { method: 'POST' });
-        state.offseasonFlow = false;
-        show('freeagency');
-        await loadFreeAgency();
+        draftBusy = true;
+        try {
+          await api('/api/draft/pass', { method: 'POST' });
+          state.offseasonFlow = false;
+          show('freeagency');
+          await loadFreeAgency();
+        } catch (e) { toast(e.message, 'error'); }
+        draftBusy = false;
       });
     }
     renderDraftPicks(j.picks);
@@ -449,7 +453,7 @@ async function loadDraft() {
   state.hardMode = j.hardMode;
   state.budget = j.budget;
   state.spent = j.spent;
-  await renderDraftRoster();
+  await renderDraftRoster(j.offseason); // rookie draft: allow releasing players
   // rookie draft: roster may be full (auto-cut handles it), don't skip to lineup
   if (j.rosterCount >= j.rosterSize && !j.offseason) {
     show('lineup');
@@ -620,6 +624,33 @@ function newsHtml(n) {
     case 'scorer': return `⚡ ${n.player} ${fill('news.scorer')}`;
     default: return JSON.stringify(n);
   }
+}
+
+// Localized season-goal description from its structured { type, target } form.
+function goalDescription(g) {
+  if (!g) return '';
+  if (g.type === 'wins') return t('goal.desc.wins').replace('{target}', g.target);
+  return t('goal.desc.' + g.type) || g.description || '';
+}
+
+// Localized goal-evaluation reason. Legacy reports persist a plain `reason` string;
+// new ones carry a reasonKey (met + reasonKey + wins/target).
+function goalReason(r) {
+  if (!r) return '';
+  if (typeof r.reason === 'string') return r.reason; // legacy
+  let s = t('goal.reason.' + (r.reasonKey || 'unknown')) || '';
+  if (r.reasonKey === 'wins' || r.reasonKey === 'wins_miss') {
+    s = s.replace('{wins}', r.wins).replace('{target}', r.target);
+  }
+  return s;
+}
+
+// Localize a structured season-story event. Legacy string entries pass through.
+function eventHtml(e) {
+  if (typeof e === 'string') return e;
+  const fill = (key) => (t(key) || '').replace(/\{(\w+)\}/g, (m, k) => (e[k] != null ? e[k] : m));
+  const map = { breakout: 'event.breakout', defense: 'event.defense', chemistry: 'event.chemistry', struggle: 'event.struggle' };
+  return fill(map[e.type] || '') || e.text || '';
 }
 
 // ---------- Offseason Recap ----------
@@ -1068,7 +1099,7 @@ function renderMidSeason(j) {
       <thead><tr><th>Player</th><th>Pos</th><th>PTS</th><th>TRB</th><th>AST</th><th>STL</th><th>BLK</th><th>MVP</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
       <tbody>${j.playerAverages.slice().sort((a, b) => b.pts - a.pts).map((p) => `<tr><td>${p.name}</td><td>${p.position}</td><td>${fmt(p.pts)}</td><td>${fmt(p.trb)}</td><td>${fmt(p.ast)}</td><td>${fmt(p.stl)}</td><td>${fmt(p.blk)}</td><td class="num">${p.mvp || 0}</td><td>${pct(p.fgPct)}</td><td>${pct(p.threePct)}</td><td>${pct(p.ftPct)}</td></tr>`).join('')}</tbody>
     </table></div>`;
-  const goalHtml = j.goal ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">🎯 <b>${t('season.goal')}:</b> ${j.goal.description}</div>` : '';
+  const goalHtml = j.goal ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">🎯 <b>${t('season.goal')}:</b> ${goalDescription(j.goal)}</div>` : '';
   $('season-result').innerHTML = `
     <div class="midseason-banner">🏀 ${t('season.midseason')} — <b>${j.wins}-${j.losses}</b> ${t('season.afterGames')} ${j.games} ${t('misc.games')}</div>
     ${goalHtml}
@@ -1123,14 +1154,14 @@ function renderSeason(j) {
 
   const goalResultHtml = j.goal && j.goalResult
     ? `<div class="midseason-banner" style="border-left:3px solid ${j.goalResult.met ? 'var(--good)' : 'var(--bad)'}">
-        ${j.goalResult.met ? '✅' : '❌'} <b>${t('season.goal')}:</b> ${j.goal?.description || ''} — ${j.goalResult.reason}
+        ${j.goalResult.met ? '✅' : '❌'} <b>${t('season.goal')}:</b> ${goalDescription(j.goal)} — ${goalReason(j.goalResult)}
       </div>`
     : j.goal && j.goal.phase === 'playoff'
       ? `<div class="midseason-banner" style="border-left:3px solid var(--gold)">
-          🎯 <b>${t('season.goal')}:</b> ${j.goal.description} <span class="muted">（${t('season.goalDeferred')}）</span>
+          🎯 <b>${t('season.goal')}:</b> ${goalDescription(j.goal)} <span class="muted">· ${t('season.goalDeferred')}</span>
         </div>`
       : '';
-  const eventsHtml = j.events && j.events.length ? `<div class="panel"><h3>📢 ${t('season.events')}</h3>${j.events.map(e => `<p>${e.text}</p>`).join('')}</div>` : '';
+  const eventsHtml = j.events && j.events.length ? `<div class="panel"><h3>📢 ${t('season.events')}</h3>${j.events.map(e => `<p>${eventHtml(e)}</p>`).join('')}</div>` : '';
 
   $('season-result').innerHTML =
     (blind ? `<p class="muted">${j.teamName} (${j.conference})</p>` : `<p class="muted">${j.teamName} (${j.conference}) · League average strength: ${j.leagueAvg}</p>`) +
@@ -1428,7 +1459,7 @@ function printSummary(r) {
   URL.revokeObjectURL(url);
 }
 
-async function renderDraftRoster() {
+async function renderDraftRoster(allowRelease = false) {
   const { roster } = await api('/api/roster');
   state.roster = roster;
   const box = $('draft-roster');
@@ -1438,13 +1469,25 @@ async function renderDraftRoster() {
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needs = ['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]);
   const strength = computeStrength(roster, [], true);
+  const chips = roster.map((p) => `
+    <span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}${allowRelease ? `<button class="chip-x" data-release="${p.id}" title="${t('fa.release')}">✕</button>` : ''}</span>`).join('');
   box.innerHTML = `
     <div class="roster-head">${t('result.starters')} <span class="muted">(${roster.length}/10)</span>
+      ${allowRelease && roster.length >= 10 ? `<span class="muted">· ${t('draft.rosterFull')}</span>` : ''}
       ${blind ? '' : `<span class="strength-inline">· 💪 ${strength.toFixed(1)}</span>`}
       ${blind ? '' : (needs.length ? `<span class="needs">· ${t('draft.need')}: ${needs.map((n) => `<b>${n}</b>`).join(' ')}</span>` : `<span class="good">· ✓</span>`)}
       ${state.hardMode ? `<span class="budget">· 💰 $${state.spent}M / $${state.budget}M</span>` : ''}
     </div>
-    <div class="chip-list">${roster.map((p) => `<span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}</span>`).join('')}</div>`;
+    <div class="chip-list">${chips}</div>`;
+  if (allowRelease) {
+    box.querySelectorAll('[data-release]').forEach((b) => b.addEventListener('click', async () => {
+      if (draftBusy) return;
+      try {
+        await api('/api/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +b.dataset.release }) });
+        await loadDraft();
+      } catch (e) { toast(e.message, 'error'); }
+    }));
+  }
 }
 
 // ---------- Matchup Simulator ----------
