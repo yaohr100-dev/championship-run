@@ -816,6 +816,22 @@ $('confirm-lineup').addEventListener('click', async () => {
       $('simulate-season').hidden = false;
       $('season-result').innerHTML = '';
       show('season');
+      // Dynasty offseason (before the season starts): trades are available here,
+      // sharing the same 3 trade points as this season's mid-season window.
+      if (state.gameMode === 'dynasty') {
+        $('season-result').innerHTML = `
+          <div class="midseason-banner" style="border-left:3px solid var(--accent)">
+            🔄 <b>${t('season.offseasonTrade')}</b>
+            <span class="muted">${t('season.offseasonTradeDesc')}</span>
+          </div>
+          <div class="row" style="margin-bottom:16px">
+            <button id="offseason-trade-btn" class="ghost">🔄 ${t('season.offseasonTrade')}</button>
+          </div>`;
+        $('offseason-trade-btn').addEventListener('click', () => {
+          $('season-result').innerHTML = `<div id="trade-panel" class="trade-panel" hidden></div>`;
+          renderTradeUI();
+        });
+      }
     }
   } catch (e) { toast(e.message, 'error'); }
 });

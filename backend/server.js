@@ -345,9 +345,9 @@ app.get('/api/roster', (req, res) => {
 
 // ---- offseason free agency (dynasty) ----
 const FA_MARKET_SIZE = 15;
-const FA_MAX_REFRESH = 3;
+const FA_MAX_REFRESH = 1;    // only one refresh per offseason
 const FA_SALARY_CAP = 450; // tighter cap for FA
-const FA_SIGN_LIMIT = 3;   // max signings per offseason
+const FA_SIGN_LIMIT = 2;   // max signings per offseason
 
 function faMarket() {
   return getState('fa_market') ? JSON.parse(getState('fa_market')) : [];
@@ -1549,7 +1549,17 @@ app.post('/api/season/start', (req, res) => {
   if (err) return res.status(400).json({ error: err });
   const config = getConfig();
 
-  const { teams, leagueAvg, aiBonus } = resolveLeague(userTeam, config);
+  // If the dynasty OFFSEASON trade window already built the league (with trades
+  // applied to the AI teams), reuse it instead of rebuilding — otherwise build now.
+  // Either way the user team is replaced with the current roster (post-trade).
+  let leagueData = null;
+  const rawLeague = getState('season_league');
+  if (rawLeague && getState('game_mode') === 'dynasty') leagueData = JSON.parse(rawLeague);
+  if (!leagueData) leagueData = resolveLeague(userTeam, config);
+  const aiBonus = leagueData.aiBonus || 0;
+  const teams = leagueData.teams.map((t) => (t.isUser ? { ...t, players: userTeam } : t));
+  const strengthOf = (t) => sim.teamStrength(t.players) + (t.isUser ? 0 : aiBonus);
+  const leagueAvg = teams.reduce((s, t) => s + strengthOf(t), 0) / teams.length;
   const schedule = sim.buildSchedule(teams);
   const standings = sim.simulateGames(teams, schedule.first, aiBonus);
 
@@ -1561,7 +1571,9 @@ app.post('/api/season/start', (req, res) => {
   setState('season_league', JSON.stringify({ teams, leagueAvg, aiBonus }));
   setState('season_schedule', JSON.stringify(schedule));
   setState('season_standings', JSON.stringify(standings));
-  setState('trade_points', '0');
+  // Dynasty: the offseason trade window already started this cycle's trade points
+  // (shared with the upcoming mid-season window). Normal mode: fresh points.
+  if (getState('game_mode') !== 'dynasty') setState('trade_points', '0');
   setState('trade_proposals', JSON.stringify(generateProposals(userTeam, teams)));
   setState('league_trade_log', '[]');
 
@@ -1636,6 +1648,21 @@ function tradeValue(players) {
 
 function myRosterRows() {
   return applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
+}
+
+// The league used for trades. During the mid-season window `season_league` already
+// exists; in the dynasty OFFSEASON (before a season starts) we build it on demand so
+// trades work, and start a FRESH trade-point cycle shared with the upcoming season's
+// mid-season window (offseason + mid-season = 3 points total).
+function tradeLeague() {
+  const raw = getState('season_league');
+  if (raw) return JSON.parse(raw);
+  const config = getConfig();
+  const userTeam = getUserTeam();
+  const league = resolveLeague(userTeam, config);
+  setState('season_league', JSON.stringify(league));
+  if (getState('trade_points') == null) setState('trade_points', '0');
+  return league;
 }
 
 // Compact player info for trade pool / offers / proposals. Includes age + per-game
@@ -1819,9 +1846,7 @@ function tryTeamTrade(a, b, n) {
 
 // Browseable pool: my roster + every AI team's players (for the propose UI).
 app.get('/api/trade/pool', (req, res) => {
-  const rawLeague = getState('season_league');
-  if (!rawLeague) return res.status(400).json({ error: 'Start the season first' });
-  const league = JSON.parse(rawLeague);
+  const league = tradeLeague(); // works mid-season AND in the dynasty offseason
   const blind = isBlindMode();
   const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
   const applySim = applySeasonStats(currentSeasonStats());
@@ -1839,9 +1864,7 @@ app.post('/api/trade', (req, res) => {
   const myPlayers = myRosterRows().filter((p) => myPlayerIds.includes(+p.id));
   if (myPlayers.length !== myPlayerIds.length) return res.status(400).json({ error: 'One of your players is not on your roster' });
 
-  const rawLeague = getState('season_league');
-  if (!rawLeague) return res.status(400).json({ error: 'Start the season first' });
-  const league = JSON.parse(rawLeague);
+  const league = tradeLeague();
 
   let aiPlayers = null;
   for (const t of league.teams) {
@@ -1916,9 +1939,7 @@ app.post('/api/trade/offers', (req, res) => {
   const myPlayers = myRosterRows().filter((p) => myPlayerIds.includes(+p.id));
   if (myPlayers.length !== myPlayerIds.length) return res.status(400).json({ error: 'Invalid player' });
 
-  const rawLeague = getState('season_league');
-  if (!rawLeague) return res.status(400).json({ error: 'Start the season first' });
-  const league = JSON.parse(rawLeague);
+  const league = tradeLeague();
 
   const n = myPlayers.length;
   const target = tradeValue(myPlayers);

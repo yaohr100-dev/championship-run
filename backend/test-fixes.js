@@ -123,20 +123,14 @@ async function main() {
     pass(fail, 'passed rookie draft (roster full / no candidates)', passRes.ok === true);
   }
 
-  // ---- 3. FA refresh counter ----
+  // ---- 3. FA refresh counter (only 1 refresh per offseason now) ----
   const fa = await req('GET', '/api/freeagency');
   pass(fail, 'FA market present', fa.candidates.length > 0, `market=${fa.candidates.length}`);
   const r1 = await req('POST', '/api/fa/refresh');
   const fa2 = await req('GET', '/api/freeagency');
-  pass(fail, 'refresh1 leaves 2', r1.refreshes === 2 && fa2.refreshes === 2, `r=${r1.refreshes}, persisted=${fa2.refreshes}`);
-  await req('POST', '/api/fa/refresh');
-  const fa3 = await req('GET', '/api/freeagency');
-  pass(fail, 'refresh2 leaves 1', fa3.refreshes === 1, `persisted=${fa3.refreshes}`);
-  await req('POST', '/api/fa/refresh');
-  const fa4 = await req('GET', '/api/freeagency');
-  pass(fail, 'refresh3 leaves 0', fa4.refreshes === 0, `persisted=${fa4.refreshes}`);
-  const r4 = await req('POST', '/api/fa/refresh');
-  pass(fail, 'refresh4 rejected (no refreshes left)', r4.status === 400 || (r4.error && /no refreshes/i.test(r4.error)), JSON.stringify(r4).slice(0, 80));
+  pass(fail, 'refresh1 leaves 0', r1.refreshes === 0 && fa2.refreshes === 0, `r=${r1.refreshes}, persisted=${fa2.refreshes}`);
+  const r2 = await req('POST', '/api/fa/refresh');
+  pass(fail, 'refresh2 rejected (no refreshes left)', r2.status === 400 || (r2.error && /no refreshes/i.test(r2.error)), JSON.stringify(r2).slice(0, 80));
 
   // finish FA
   const done = await req('POST', '/api/freeagency/done');
