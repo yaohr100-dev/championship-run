@@ -606,6 +606,22 @@ $('fa-done').addEventListener('click', async () => {
   } catch (e) { toast(e.message, 'error'); }
 });
 
+// Localize a structured league-news event into the current language. Legacy string
+// entries (persisted before the structured format) pass through as-is.
+function newsHtml(n) {
+  if (typeof n === 'string') return n;
+  const fill = (key) => (t(key) || '').replace(/\{(\w+)\}/g, (m, k) => (n[k] != null ? n[k] : m));
+  switch (n.type) {
+    case 'champion': return `🏆 ${n.team} ${fill('news.champion')}`;
+    case 'mvp': return `🌟 ${n.player} (${n.team}) ${fill('news.mvp')}`;
+    case 'legends': return `👋 ${fill('news.legends')}`;
+    case 'dominant': return `🔥 ${n.team} ${fill('news.dominant')}`;
+    case 'rebuild': return `😤 ${n.team} ${fill('news.rebuild')}`;
+    case 'scorer': return `⚡ ${n.player} ${fill('news.scorer')}`;
+    default: return JSON.stringify(n);
+  }
+}
+
 // ---------- Offseason Recap ----------
 function renderRecap(recap) {
   const box = $('recap-body');
@@ -626,7 +642,7 @@ function renderRecap(recap) {
     ? `<div class="panel" style="border-color:var(--bad)"><b>${t('recap.refused')}:</b><div class="chip-list">${recap.refused.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position || ''}</span> <span class="muted">(OVR ${p.overall})</span></span>`).join('')}</div><p class="muted" style="margin-top:6px">${t('recap.refusedDesc')}</p></div>`
     : '';
   const news = recap.news && recap.news.length
-    ? `<div class="panel"><b>📰 ${t('recap.news')}</b><ul style="margin:8px 0 0 18px">${recap.news.map((n) => `<li style="margin-bottom:4px">${n}</li>`).join('')}</ul></div>`
+    ? `<div class="panel"><b>📰 ${t('recap.news')}</b><ul style="margin:8px 0 0 18px">${recap.news.map((n) => `<li style="margin-bottom:4px">${newsHtml(n)}</li>`).join('')}</ul></div>`
     : '';
   box.innerHTML = champ + mvp + news + legends + refusals;
 }

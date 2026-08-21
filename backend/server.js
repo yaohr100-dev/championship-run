@@ -710,24 +710,26 @@ app.post('/api/next-season', (req, res) => {
   }
   setState('career_stats', JSON.stringify(careerStats));
 
-  // P8: Generate league news from this season
+  // P8: Generate league news from this season.
+  // Stored as STRUCTURED events (type + data), NOT rendered strings — the recap
+  // screen localizes them on the client, so English/中文 both work regardless of
+  // which language the backend "speaks".
   const news = [];
-  if (playoff && playoff.champion) news.push(`🏆 ${playoff.champion} 赢得了${sim.seasonLabel(seasonNumber)}总冠军！`);
+  if (playoff && playoff.champion) news.push({ type: 'champion', team: playoff.champion, season: sim.seasonLabel(seasonNumber) });
   if (seasonResult && seasonResult.awards && seasonResult.awards.mvp) {
     const mvp = seasonResult.awards.mvp;
-    news.push(`🌟 ${mvp.player} (${mvp.team}) 当选常规赛MVP`);
+    news.push({ type: 'mvp', player: mvp.player, team: mvp.team });
   }
   if (retiredLegends.length) {
-    const names = retiredLegends.slice(0, 3).map(l => l.name).join('、');
-    news.push(`👋 传奇谢幕: ${names} 等球星宣布退役`);
+    news.push({ type: 'legends', names: retiredLegends.slice(0, 3).map(l => l.name) });
   }
   if (record) {
-    if (record.wins >= 60) news.push(`🔥 ${userTeamName} 以 ${record.wins}胜 打出统治级赛季！`);
-    else if (record.wins <= 25) news.push(`😤 ${userTeamName} 仅 ${record.wins}胜，重建之路漫长...`);
+    if (record.wins >= 60) news.push({ type: 'dominant', team: userTeamName, wins: record.wins });
+    else if (record.wins <= 25) news.push({ type: 'rebuild', team: userTeamName, wins: record.wins });
   }
   if (myAverages.length) {
     const top = myAverages.sort((a, b) => b.pts - a.pts)[0];
-    if (top.pts >= 25) news.push(`⚡ ${top.name} 场均${top.pts.toFixed(1)}分，扛起球队进攻大旗`);
+    if (top.pts >= 25) news.push({ type: 'scorer', player: top.name, pts: top.pts.toFixed(1) });
   }
   setState('league_news', JSON.stringify(news));
 

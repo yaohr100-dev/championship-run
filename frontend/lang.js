@@ -215,6 +215,14 @@ const LANG = {
     'recap.refusedDesc': 'These players\' contracts expired and they chose to leave. They are now free agents.',
     'recap.news': 'League News',
 
+    // ---- League news (localized on the client from structured events) ----
+    'news.champion': 'won the {season} championship!',
+    'news.mvp': 'named Regular-Season MVP',
+    'news.legends': 'Legends retiring: {names}',
+    'news.dominant': 'posted a dominant {wins}-win season!',
+    'news.rebuild': 'only won {wins} games — a long rebuild ahead...',
+    'news.scorer': 'averaged {pts} PPG, carrying the offense',
+
     // ---- Summary ----
     'summary.dynasty': 'Dynasty mode',
     'summary.seasonSummary': 'Season Summary',
@@ -519,6 +527,14 @@ const LANG = {
     'recap.refused': '拒绝续约',
     'recap.refusedDesc': '这些球员合同到期后选择离开,现已成为自由球员。',
     'recap.news': '联盟新闻',
+
+    // ---- League news (localized on the client from structured events) ----
+    'news.champion': '赢得了{season}总冠军！',
+    'news.mvp': '当选常规赛MVP',
+    'news.legends': '传奇谢幕: {names} 等球星宣布退役',
+    'news.dominant': '以 {wins}胜 打出统治级赛季！',
+    'news.rebuild': '仅 {wins}胜，重建之路漫长...',
+    'news.scorer': '场均{pts}分，扛起球队进攻大旗',
     'summary.dynasty': '王朝模式',
     'summary.seasonSummary': '赛季总结',
     'summary.seasons': '个赛季',
