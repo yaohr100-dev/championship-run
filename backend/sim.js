@@ -339,13 +339,22 @@ function draftOverall() {
 
 const r2 = (x) => Math.round(x * 100) / 100;
 
-// Position-aware rookie stat estimates, mirrors seed.js estimateStats but nudges the
-// big-man / point-guard tendencies so a C rebounds and a PG assists.
-// Each rookie gets random noise on every stat (+ random offense/defense split)
-// so two 80-OVR PGs look completely different — one is a scorer, one a playmaker.
+// Position-aware rookie stat estimates. The BASE per-game numbers are fitted to the
+// real player pool (power-law in x = overall-55): the old linear formula
+// (pts = 0.7x, trb = 0.22x, …) gave a 70-OVR rookie 10.5 ppg when real 70-OVR
+// players average ~2-6 — the baseline was far too high, especially at low overalls.
+// Each stat keeps its random multiplier + position tendency so two 80-OVR PGs look
+// different (one a scorer, one a playmaker).
 function rookieStats(overall, position) {
   const x = overall - 55;
   const rand = () => 0.7 + Math.random() * 0.6; // 0.70 - 1.30 random multiplier
+  const base = {
+    pts: 0.017 * Math.pow(x, 2.0),
+    trb: 0.060 * Math.pow(x, 1.3),
+    ast: 0.0073 * Math.pow(x, 1.84),
+    stl: 0.023 * Math.pow(x, 1.1),
+    blk: 0.0072 * Math.pow(x, 1.3),
+  };
   const mod = {
     PG: { trb: -1.0, ast: 2.0, blk: -0.2 },
     SG: { trb: -0.5, ast: 0.5, blk: -0.1 },
@@ -370,11 +379,11 @@ function rookieStats(overall, position) {
   const blkBoost = position === 'PF' || position === 'C' ? defBoost * 2.0 : defBoost * 0.4;
 
   return {
-    pts: r2(Math.max(0.5, 0.7 * x * rand())),
-    trb: r2(Math.max(0.3, (0.22 * x + mod.trb) * rand())),
-    ast: r2(Math.max(0.2, (0.18 * x + mod.ast) * rand())),
-    stl: r2(Math.max(0.1, (0.035 * x + stlBoost) * rand())),
-    blk: r2(Math.max(0.05, (0.03 * x + mod.blk + blkBoost) * rand())),
+    pts: r2(Math.max(0.5, base.pts * rand())),
+    trb: r2(Math.max(0.3, (base.trb + mod.trb) * rand())),
+    ast: r2(Math.max(0.2, (base.ast + mod.ast) * rand())),
+    stl: r2(Math.max(0.1, (base.stl + stlBoost) * rand())),
+    blk: r2(Math.max(0.05, (base.blk + mod.blk + blkBoost) * rand())),
     fgPct: r2(0.40 + (overall - 60) * 0.0045 + (Math.random() - 0.5) * 0.04),
     threePct: r2(0.28 + (overall - 60) * 0.0035 + (Math.random() - 0.5) * 0.06),
     ftPct: r2(0.62 + (overall - 60) * 0.004 + (Math.random() - 0.5) * 0.08),
@@ -390,14 +399,20 @@ function generateRookie(db) {
   // Weighted position distribution: guards/wings are more common than bigs in the NBA
   const posPool = ['PG','PG','PG','PG', 'SG','SG','SG','SG','SG', 'SF','SF','SF','SF','SF', 'PF','PF','PF','PF', 'C','C','C','C'];
   const position = posPool[Math.floor(Math.random() * posPool.length)];
+  // Most rookies get a plausible ADJACENT secondary position (real players ~84% have
+  // a POS1/POS2, e.g. PG/SG), so they aren't locked into a single slot.
+  const SECONDARY_BY_POS = { PG: ['SG'], SG: ['PG', 'SF'], SF: ['SG', 'PF'], PF: ['SF', 'C'], C: ['PF'] };
+  const secondary = Math.random() < 0.85
+    ? SECONDARY_BY_POS[position][Math.floor(Math.random() * SECONDARY_BY_POS[position].length)]
+    : null;
   const age = 19 + Math.floor(Math.random() * 4); // 19-22
   const overall = draftOverall();
   const s = rookieStats(overall, position);
   const info = db.prepare(`
     INSERT INTO players (name, position, position2, age, overall, epm, oepm, depm, pts, trb, ast, stl, blk, mp, fg_pct, three_pct, ft_pct, session_id)
-    VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-  `).run(name, position, age, overall, s.epm, s.oepm, s.depm, s.pts, s.trb, s.ast, s.stl, s.blk, s.fgPct, s.threePct, s.ftPct, session);
-  return { id: info.lastInsertRowid, name, position, age, overall };
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+  `).run(name, position, secondary, age, overall, s.epm, s.oepm, s.depm, s.pts, s.trb, s.ast, s.stl, s.blk, s.fgPct, s.threePct, s.ftPct, session);
+  return { id: info.lastInsertRowid, name, position, position2: secondary, age, overall };
 }
 
 // Generate this year's draft class (n rookies).
