@@ -1648,6 +1648,35 @@ function brief(p) {
   };
 }
 
+// Current-season simulated per-game averages (from the standings' per-player acc),
+// keyed by player NAME. During the mid-season trade window this reflects how players
+// have ACTUALLY played this season (41 games), not their baseline stats.
+function currentSeasonStats() {
+  const raw = getState('season_standings');
+  if (!raw) return {};
+  let standings;
+  try { standings = JSON.parse(raw); } catch (e) { return {}; }
+  const map = {};
+  for (const t of (Array.isArray(standings) ? standings : [])) {
+    if (!t || !t.acc) continue;
+    for (const [name, a] of Object.entries(t.acc)) {
+      if (!a || !a.games) continue;
+      const g = a.games;
+      map[name] = { pts: +(a.pts / g).toFixed(1), trb: +(a.trb / g).toFixed(1), ast: +(a.ast / g).toFixed(1) };
+    }
+  }
+  return map;
+}
+
+// Overlay the current-season simulated averages onto a trade brief, so trade
+// offers/proposals show THIS season's performance. Falls back to the baseline stats
+// when the player has no season games yet.
+const applySeasonStats = (statsMap) => (b) => {
+  const s = statsMap[b.name];
+  if (s) { b.pts = s.pts; b.trb = s.trb; b.ast = s.ast; }
+  return b;
+};
+
 // Pair incoming players to outgoing players' role/slot (highest overall first),
 // so a traded-away starter is replaced by a starter (keeps 5 starters).
 function pairRoles(outPlayers, inPlayers) {
@@ -1795,8 +1824,9 @@ app.get('/api/trade/pool', (req, res) => {
   const league = JSON.parse(rawLeague);
   const blind = isBlindMode();
   const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
-  const myRoster = myRosterRows().map(brief).map(strip);
-  const aiPlayers = league.teams.filter((t) => !t.isUser).flatMap((t) => t.players.map((p) => ({ ...brief(p), team: t.name }))).map(strip).sort((a, b) => (b.overall || 0) - (a.overall || 0));
+  const applySim = applySeasonStats(currentSeasonStats());
+  const myRoster = myRosterRows().map(brief).map(applySim).map(strip);
+  const aiPlayers = league.teams.filter((t) => !t.isUser).flatMap((t) => t.players.map((p) => ({ ...brief(p), team: t.name }))).map(applySim).map(strip).sort((a, b) => (b.overall || 0) - (a.overall || 0));
   res.json({ myRoster, aiPlayers, remainingPoints: MAX_TRADE_POINTS - tradePoints(), leagueTradeLog: getState('league_trade_log') ? JSON.parse(getState('league_trade_log')) : [] });
 });
 
@@ -1894,6 +1924,7 @@ app.post('/api/trade/offers', (req, res) => {
   const target = tradeValue(myPlayers);
   const margin = TRADE_ACCEPT_MARGIN * n;
   const rand = mulberry32(hashIds(myPlayerIds)); // same combination → same 15 offers (no refresh)
+  const applySim = applySeasonStats(currentSeasonStats());
   const offers = [];
   const aiTeams = shuffleSeeded(league.teams.filter((t) => !t.isUser), rand).slice(0, 15);
   for (const t of aiTeams) {
@@ -1903,7 +1934,7 @@ app.post('/api/trade/offers', (req, res) => {
     const noise = (rand() + rand() - 1) * margin;
     const pkg = bestPackage(t.players, n, target + noise, target + margin);
     if (!pkg) continue;
-    offers.push({ aiTeam: t.name, aiPlayers: pkg.map(brief), aiTotal: tradeValue(pkg) });
+    offers.push({ aiTeam: t.name, aiPlayers: pkg.map(brief).map(applySim), aiTotal: tradeValue(pkg) });
   }
   const blind = isBlindMode();
   const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
@@ -1920,7 +1951,8 @@ app.get('/api/trade/proposals', (req, res) => {
   // Blind mode: strip ability fields from proposal player data
   const blind = isBlindMode();
   const strip = blind ? (({ overall, ...rest }) => rest) : (p) => p;
-  const out = valid.map(p => ({ ...p, myPlayers: p.myPlayers.map(strip), aiPlayers: p.aiPlayers.map(strip) }));
+  const applySim = applySeasonStats(currentSeasonStats());
+  const out = valid.map(p => ({ ...p, myPlayers: p.myPlayers.map(applySim).map(strip), aiPlayers: p.aiPlayers.map(applySim).map(strip) }));
   res.json({ proposals: out });
 });
 
