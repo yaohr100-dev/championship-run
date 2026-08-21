@@ -40,7 +40,11 @@ function updateProgress(activeId) {
 
 function show(id) {
   document.querySelectorAll('main > section').forEach((s) => (s.hidden = true));
-  $(id).hidden = false;
+  const el = $(id);
+  el.hidden = false;
+  el.classList.remove('page-enter');
+  void el.offsetWidth; // restart the fade-up animation on each show
+  el.classList.add('page-enter');
   updateProgress(id);
   window.scrollTo(0, 0);
 }
@@ -62,6 +66,25 @@ const halfBadge = (half) => (half === 'first' ? ' <span class="half-badge first"
 // HTML-escape for safe innerHTML interpolation (user names, team names)
 const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
 const growthBadge = (p) => (p.delta == null ? '' : (p.delta > 0 ? ` <span class="good">▲${p.delta}</span>` : p.delta < 0 ? ` <span class="bad">▼${Math.abs(p.delta)}</span>` : ''));
+
+// Lightweight count-up for pure-numeric readouts (result stats etc.).
+// Non-numeric strings ("42-40") are left untouched.
+function animateNumber(el) {
+  const raw = (el.textContent || '').trim();
+  if (!/^[\d]+([.]\d+)?$/.test(raw)) return;
+  const target = parseFloat(raw);
+  const decimals = (raw.split('.')[1] || '').length;
+  const dur = 700;
+  const start = performance.now();
+  const tick = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = (target * eased).toFixed(decimals);
+    if (p < 1) requestAnimationFrame(tick);
+    else el.textContent = raw;
+  };
+  requestAnimationFrame(tick);
+}
 
 // ---------- Session ID (view / switch your save) ----------
 function initSessionUI() {
@@ -1274,7 +1297,7 @@ function showResult() {
       <button id="back-home-final" class="ghost">${t('result.backHome')}</button>`;
 
     $('result-body').innerHTML = `
-      <div class="result-banner">${banner}</div>
+      <div class="result-banner${isUserChamp ? ' champ' : eliminated ? ' elim' : ''}">${banner}</div>
       <p class="muted">${sub}</p>
       <div class="result-stats">
         <div class="rs"><span class="rs-v">${record}</span><span class="rs-k">${seasonHeader}</span></div>
@@ -1295,6 +1318,7 @@ function showResult() {
         }).join('')
       }</div></div>` : ''}
       <div class="row" style="justify-content:center; margin-top:20px">${actions}</div>`;
+    $('result-body').querySelectorAll('.rs-v').forEach(animateNumber);
 
     $('next-season')?.addEventListener('click', async () => {
       try {
