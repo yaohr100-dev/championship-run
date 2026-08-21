@@ -567,13 +567,15 @@ function buildSchedule(teams) {
 }
 
 // "Player of the game" — the top box-score line does NOT always win. Rank the
-// players by box score and pick PROBABILISTICALLY, weighted by score² over the top
-// 3. A dominant star still takes it most nights (~70%), but a hot 2nd/3rd option or
-// a close race lets someone else steal it once in a while — previously the leading
-// scorer won ~97% of games when the scoring gap was large (e.g. an 89-OVR star
-// getting 80 of 82 single-game MVPs).
+// players by a composite score and pick PROBABILISTICALLY, weighted by score² over
+// the top 3. The score = box score + EPM × STAR_EPM_WEIGHT, so a high-impact player
+// with a modest box line (e.g. a Ty Jerome type: strong EPM, average stats) gets a
+// real chance against a raw-scoring teammate, while a true star (high box AND high
+// EPM) still takes it most nights (~70%). A hot 2nd/3rd option or a close race lets
+// someone else steal it — previously the leading scorer won ~97% of games.
+const STAR_EPM_WEIGHT = 2;
 function gameStar(stats) {
-  const scored = stats.map((s) => ({ s, score: s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk }));
+  const scored = stats.map((s) => ({ s, score: s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk + (s.epm || 0) * STAR_EPM_WEIGHT }));
   if (!scored.length) return null;
   scored.sort((a, b) => b.score - a.score);
   const pool = scored.slice(0, 3);
@@ -931,6 +933,7 @@ function allocateStats(players, teamScore, topHeavy = false) {
   return rows.map((x, i) => ({
     name: x.p.name,
     position: x.p.position,
+    epm: x.p.epm,
     f: x.f,
     pts: pts[i],
     trb: trb[i], ast: ast[i], stl: stl[i], blk: blk[i],
