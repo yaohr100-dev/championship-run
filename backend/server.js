@@ -2129,7 +2129,15 @@ app.post('/api/playoffs/round', (req, res) => {
 
   const winners = results.map(r => r.winner);
   const userStillIn = winners.some(w => w.isUser);
-  if (!userStillIn) { state.userEliminated = true; state.userEliminatedRound = state.round; }
+  // Record the elimination round ONLY on the round it first happens. The AI bracket
+  // keeps simulating after the user is out, and without this guard each later round
+  // would overwrite userEliminatedRound with the FINAL round — so a first-round exit
+  // would wrongly report "Eliminated in round 4". (Also affects the season goal:
+  // userEliminatedRound >= 3 is used to judge "reach conference finals".)
+  if (!userStillIn && !state.userEliminated) {
+    state.userEliminated = true;
+    state.userEliminatedRound = state.round;
+  }
 
   const roundPlayed = state.round;
 
