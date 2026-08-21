@@ -433,6 +433,7 @@ async function loadDraft() {
     $('draft-desc').innerHTML = `${pos}${t('draft.descRookie')}${canPass}`;
     if (j.canPass) {
       $('draft-pass')?.addEventListener('click', async () => {
+        if (draftBusy) return;
         await api('/api/draft/pass', { method: 'POST' });
         state.offseasonFlow = false;
         show('freeagency');
@@ -465,6 +466,11 @@ function renderDraftPicks(picks) {
   box.innerHTML = `<b>${t('draft.picksSoFar')}</b><div class="draft-picks-list">${picks.map((p) => `<span class="chip">${p.team} → ${p.player} <span class="muted">(${p.position} · OVR ${p.overall})</span></span>`).join('')}</div>`;
 }
 
+// Guards against double-submitting a draft pick during lag: one busy flag shared
+// across every candidate card (each card's own disabled state isn't enough — a
+// second click on ANOTHER card would otherwise fire a second pick request).
+let draftBusy = false;
+
 function renderCandidates(candidates) {
   const box = $('candidates');
   box.innerHTML = '';
@@ -492,15 +498,18 @@ function renderCandidates(candidates) {
       <button data-id="${c.id}">${t('draft.pick')}</button>`;
     card.querySelector('button').addEventListener('click', async () => {
       const btn = card.querySelector('button');
-      if (btn.disabled) return;
-      btn.disabled = true;
+      if (btn.disabled || draftBusy) return;
+      draftBusy = true;
+      box.querySelectorAll('button').forEach((b) => (b.disabled = true)); // lock every card
+      const unlock = () => { draftBusy = false; box.querySelectorAll('button').forEach((b) => (b.disabled = false)); };
       try {
         const r = await api('/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +btn.dataset.id }) });
         if (r.error) {
           toast(r.error, 'error');
-          btn.disabled = false;
+          unlock();
           return;
         }
+        draftBusy = false;
         // Annual rookie draft: after your pick, the offseason continues to free agency
         // (the backend clears the draft class, so loadDraft() would show the opening
         // draft again or jump straight to the lineup, skipping FA).
@@ -511,13 +520,14 @@ function renderCandidates(candidates) {
         } else {
           await loadDraft();
         }
-      } catch (e) { btn.disabled = false; toast(e.message, 'error'); }
+      } catch (e) { unlock(); toast(e.message, 'error'); }
     });
     box.appendChild(card);
   }
 }
 
 $('reroll').addEventListener('click', async () => {
+  if (draftBusy) return;
   const j = await api('/api/draft/reroll', { method: 'POST' });
   $('reroll-count').textContent = j.rerolls;
   renderCandidates(j.candidates);

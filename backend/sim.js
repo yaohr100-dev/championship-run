@@ -688,7 +688,11 @@ function mergeStandings(s1, s2, totalGames) {
     }
     const wins = t1.wins + t2.wins;
     const gameLog = [...(t1.gameLog || []), ...(t2.gameLog || [])];
-    return { ...t2, players: t1.players, wins, losses: totalGames - wins, winPct: wins / totalGames, gameLog, acc };
+    // players: the FINAL (half-2) roster. Half 2 is simulated AFTER the mid-season
+    // trade window, so t2.players reflects traded-in/out players. Using half-1's
+    // roster here would leave a traded-away player on their old team in the
+    // standings and playoffs — exactly the "traded player is on the wrong team" bug.
+    return { ...t2, players: t2.players, wins, losses: totalGames - wins, winPct: wins / totalGames, gameLog, acc };
   });
 }
 

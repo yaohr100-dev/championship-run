@@ -642,6 +642,11 @@ function applyI18n() {
     const val = t(key);
     if (val) el.placeholder = val;
   });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-title');
+    const val = t(key);
+    if (val) el.title = val;
+  });
   // Update <html lang>
   document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
   // Update title

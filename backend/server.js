@@ -240,6 +240,13 @@ app.post('/api/draft/reroll', (req, res) => {
 app.post('/api/roster', (req, res) => {
   const { playerId } = req.body || {};
   if (!playerId) return res.status(400).json({ error: 'playerId required' });
+  // A draft pick is only valid during the draft phase. This closes the double-submit
+  // window where a lagging second pick request (e.g. clicking a second card while the
+  // first is in flight) lands AFTER the first pick already advanced the phase — it
+  // would otherwise insert an extra player from the normal pool.
+  if (getState('phase') !== 'draft') {
+    return res.status(400).json({ error: 'Draft is not active right now' });
+  }
   let count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const isRookieDraft = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
 
@@ -305,6 +312,7 @@ app.post('/api/roster', (req, res) => {
 
 // Pass on the annual rookie draft: skip your pick, remaining AI teams auto-draft.
 app.post('/api/draft/pass', (req, res) => {
+  if (getState('phase') !== 'draft') return res.status(400).json({ error: 'Draft is not active right now' });
   const isDrafting = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
   if (!isDrafting) return res.status(400).json({ error: 'No active draft to pass' });
   const picks = getState('draft_picks') ? JSON.parse(getState('draft_picks')) : [];
@@ -1580,9 +1588,10 @@ function tradeValue(players) {
   const ages = playerAges();
   return players.reduce((s, p) => {
     const age = ages[p.name] || p.age || 26;
-    // Gentle curve: young premium +0.4%/yr before 27, old discount -1.0%/yr after.
-    //   age 22 → +2%   age 27 → 0%   age 33 → -6%   age 37 → -10%   cap -12%
-    const f = age <= 27 ? 1.0 + (27 - age) * 0.004 : Math.max(0.88, 1.0 - (age - 27) * 0.01);
+    // Gentle curve: young premium +0.5%/yr before 27 (capped +3%), old discount
+    // -1.0%/yr after 27, floored at -8% so aging stays "mild".
+    //   age 22 → +2.5%   age 27 → 0%   age 33 → -6%   age 35 → -8% (floor)
+    const f = age <= 27 ? Math.min(1.03, 1.0 + (27 - age) * 0.005) : Math.max(0.92, 1.0 - (age - 27) * 0.01);
     return s + Math.round(p.overall * f);
   }, 0);
 }
@@ -1774,6 +1783,14 @@ app.post('/api/trade', (req, res) => {
   const margin = TRADE_ACCEPT_MARGIN * n;
   const myVal = tradeValue(myPlayers), aiVal = tradeValue(aiPlayers);
   const excess = aiVal - myVal;
+
+  // Hard cap on how lopsided a deal can be in EITHER direction: a trade where one
+  // side gives up far more ability than it receives (a star for a fringe player, or
+  // vice versa) is never accepted — "ability gap too large to proceed".
+  const maxGap = margin * 3; // 9 OVR/player
+  if (Math.abs(excess) > maxGap) {
+    return res.json({ accepted: false, message: `Rejected: ability gap too large (${Math.abs(excess)} OVR, max ${maxGap}).` });
+  }
 
   // Salary soft cap: in hard mode, warn when payroll exceeds $450M but don't block.
   // The AI value check already limits unfair trades; a hard payroll block kills all
