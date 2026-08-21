@@ -341,6 +341,16 @@ const FA_SIGN_LIMIT = 3;   // max signings per offseason
 function faMarket() {
   return getState('fa_market') ? JSON.parse(getState('fa_market')) : [];
 }
+
+// The FA market is persisted as a list of player IDs (see buildFAMarket). Resolve
+// them back to full player rows so playerBrief() gets objects, not bare ids —
+// calling playerBrief on an id produced all-undefined candidates ("undefined" cards).
+function faMarketPlayers() {
+  const ids = faMarket();
+  if (!ids.length) return [];
+  const byId = new Map(db.prepare(`SELECT * FROM players WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((p) => [p.id, p]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
 function faRefreshes() {
   return parseInt(getState('fa_refreshes') || String(FA_MAX_REFRESH), 10);
 }
@@ -358,7 +368,7 @@ function buildFAMarket() {
 app.get('/api/freeagency', (req, res) => {
   const roster = applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
   const contracts = playerContracts();
-  let market = faMarket();
+  let market = faMarketPlayers();
   if (!market.length) {
     market = buildFAMarket();
     setState('fa_refreshes', String(FA_MAX_REFRESH)); // full refreshes only on a fresh market
@@ -655,12 +665,15 @@ app.post('/api/next-season', (req, res) => {
   const retirements = []; // user retirees (names)
   const userRetirePositions = []; // user retirees' positions (for draft needs)
   const retiredLegends = []; // hall-of-fame worthy retirees (overall >= 85)
+  const userRetirees = []; // full user retirees incl. role players (for the recap)
   const roster = db.prepare('SELECT r.player_id, p.name, p.age, p.overall, p.position FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session);
   for (const row of roster) {
     if (ages[row.name] != null && ages[row.name] >= sim.retireAge(row.overall)) {
       retirements.push(row.name);
       userRetirePositions.push(row.position);
-      if (row.overall >= 85) retiredLegends.push({ name: row.name, position: row.position, overall: row.overall, team: userTeamName, isUser: true });
+      const legend = row.overall >= 85;
+      userRetirees.push({ name: row.name, position: row.position, overall: row.overall, legend });
+      if (legend) retiredLegends.push({ name: row.name, position: row.position, overall: row.overall, team: userTeamName, isUser: true });
       db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(row.player_id, session);
       delete ages[row.name];
     }
@@ -955,6 +968,7 @@ app.post('/api/next-season', (req, res) => {
       season: seasonNumber,
       champion: playoff ? playoff.champion : null,
       mvp: seasonResult && seasonResult.awards && seasonResult.awards.mvp ? { player: seasonResult.awards.mvp.player, team: seasonResult.awards.mvp.team } : null,
+      retirements: userRetirees, // ALL user retirees (role players too), not just legends
       retiredLegends,
       refused: refused || [],
       aiTrades: aiTradeLog || [],

@@ -612,9 +612,16 @@ function renderRecap(recap) {
   if (!recap) { box.innerHTML = `<p class="muted">${t('recap.title')}</p>`; return; }
   const champ = recap.champion ? `<p><b>${t('recap.champion')}:</b> ${recap.champion}</p>` : '';
   const mvp = recap.mvp ? `<p><b>${t('recap.mvp')}:</b> ${recap.mvp.player} <span class="muted">(${recap.mvp.team})</span></p>` : '';
-  const legends = recap.retiredLegends && recap.retiredLegends.length
-    ? `<div class="panel"><b>${t('recap.retired')}:</b><div class="chip-list">${recap.retiredLegends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team})</span></span>`).join('')}</div></div>`
-    : `<p class="muted">${t('recap.noRetirements')}</p>`;
+  // Retired section: show EVERY player the user lost to retirement this offseason
+  // (role players too). Previously only legends were listed, so a non-legend retiree
+  // silently shrank the roster with the recap claiming "no retirements".
+  const userRets = (recap.retirements || []).filter((r) => r && r.name);
+  const leagueLegends = (recap.retiredLegends || []).filter((l) => l && l.name);
+  const legends = userRets.length
+    ? `<div class="panel"><b>${t('recap.retired')}:</b><div class="chip-list">${userRets.map((r) => `<span class="chip">${r.name} <span class="pos">${r.position}</span> <span class="muted">OVR ${r.overall}</span>${r.legend ? ' 🏅' : ''}</span>`).join('')}</div></div>`
+    : leagueLegends.length
+      ? `<div class="panel"><b>${t('recap.retired')}:</b><div class="chip-list">${leagueLegends.map((l) => `<span class="chip">${l.name} <span class="pos">${l.position}</span> <span class="muted">(${l.team})</span></span>`).join('')}</div></div>`
+      : `<p class="muted">${t('recap.noRetirements')}</p>`;
   const refusals = recap.refused && recap.refused.length
     ? `<div class="panel" style="border-color:var(--bad)"><b>${t('recap.refused')}:</b><div class="chip-list">${recap.refused.map((p) => `<span class="chip">${p.name} <span class="pos">${p.position || ''}</span> <span class="muted">(OVR ${p.overall})</span></span>`).join('')}</div><p class="muted" style="margin-top:6px">${t('recap.refusedDesc')}</p></div>`
     : '';
