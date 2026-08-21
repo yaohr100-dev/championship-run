@@ -566,17 +566,25 @@ function buildSchedule(teams) {
   return { first: [...rr1, ...exA], second: [...rr2, ...exB] };
 }
 
-// Best box-score line in a single game (used for "player of the game").
-// Weighted close to real NBA Game Score: points dominate, rebounds/assists help,
-// steals/blocks minor. (A triple-double machine still wins most games, but a
-// teammate's scoring outburst can occasionally take it.)
+// "Player of the game" — the top box-score line does NOT always win. Rank the
+// players by box score and pick PROBABILISTICALLY, weighted by score² over the top
+// 3. A dominant star still takes it most nights (~70%), but a hot 2nd/3rd option or
+// a close race lets someone else steal it once in a while — previously the leading
+// scorer won ~97% of games when the scoring gap was large (e.g. an 89-OVR star
+// getting 80 of 82 single-game MVPs).
 function gameStar(stats) {
-  let best = null, bestScore = -Infinity;
-  for (const s of stats) {
-    const score = s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk;
-    if (score > bestScore) { bestScore = score; best = s; }
+  const scored = stats.map((s) => ({ s, score: s.pts + 0.5 * s.trb + 0.5 * s.ast + s.stl + s.blk }));
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score);
+  const pool = scored.slice(0, 3);
+  let total = 0;
+  for (const p of pool) total += p.score * p.score;
+  let r = Math.random() * total;
+  for (const p of pool) {
+    r -= p.score * p.score;
+    if (r <= 0) return p.s.name;
   }
-  return best ? best.name : null;
+  return scored[0].s.name;
 }
 
 // Notable single-game lines: a triple-double (a Jokic-type star), or a 25+ point
