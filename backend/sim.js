@@ -256,15 +256,18 @@ function poolPlayers(db) {
   return db.prepare('SELECT * FROM players WHERE session_id IS NULL OR session_id = ?').all(currentSession());
 }
 
-// 5 random candidates, excluding drafted, with position diversity (>= 4 of 5)
-function draftCandidates(db) {
+// Random draft candidates (excluding drafted) with position diversity.
+// `count` = cards shown per round (5 for normal, 3 for dynasty's initial draft).
+// Diversity: 5 cards need >= 4 distinct positions; 3 cards need >= 2.
+function draftCandidates(db, count = 5) {
   const drafted = new Set(db.prepare('SELECT player_id FROM roster WHERE session_id = ?').all(currentSession()).map(r => r.player_id));
   const all = poolPlayers(db).filter(p => !drafted.has(p.id));
+  const needDiversity = count >= 5 ? 4 : Math.max(1, count - 1);
   let candidates = [];
   for (let i = 0; i < 200; i++) {
-    candidates = shuffle(all).slice(0, 5);
+    candidates = shuffle(all).slice(0, count);
     const positions = new Set(candidates.map(p => p.position));
-    if (positions.size >= 4) break;
+    if (positions.size >= needDiversity) break;
   }
   return candidates;
 }

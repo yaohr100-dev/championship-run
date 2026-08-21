@@ -887,13 +887,21 @@ function gameLogHtml(games) {
 let tradePool = null;
 let tradeNotice = '';
 
+// Per-game stats + age for a trade player row (observed performance — shown even in
+// blind mode; only the ability `overall` is hidden there).
+function tradePlayerMeta(p) {
+  const age = p.age != null ? `${p.age}${t('misc.age')}` : '';
+  const line = `${p.pts != null ? p.pts : '—'} ${t('misc.pts')} · ${p.trb != null ? p.trb : '—'} ${t('misc.reb')} · ${p.ast != null ? p.ast : '—'} ${t('misc.ast')}`;
+  return age ? ` <span class="muted">${age} · ${line}</span>` : ` <span class="muted">${line}</span>`;
+}
+
 // Render a checkbox list of players; returns the checked ids.
 function tradeChecklist(players, label) {
   const box = document.createElement('div');
   box.className = 'trade-checkbox-list';
   const blind = isBlind();
   box.innerHTML = `<label class="trade-label">${label}</label>` + players.map((p) => `
-    <label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall}</span>`}${p.team ? ` <span class="muted">· ${p.team}</span>` : ''}</span></label>`).join('');
+    <label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}${p.position2 ? '/' + p.position2 : ''}</span>${tradePlayerMeta(p)}${blind ? '' : ` <span class="muted">${p.overall}</span>`}${p.team ? ` <span class="muted">· ${p.team}</span>` : ''}</span></label>`).join('');
   box.checked = () => [...box.querySelectorAll('input:checked')].map((c) => +c.value);
   return box;
 }
@@ -978,7 +986,7 @@ function renderPropose(myRoster, aiPlayers, teams) {
       aiList.innerHTML = `<p class="muted" style="padding:8px">${t('trade.noMatch')}</p>`;
     } else {
       aiList.innerHTML = `<label class="trade-label">${t('trade.pickSame')}</label>` +
-        filtered.map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}</span>${blind ? '' : ` <span class="muted">${p.overall} · ${p.team}</span>`}</span></label>`).join('');
+        filtered.map((p) => `<label class="trade-check"><input type="checkbox" value="${p.id}"><span>${p.name} <span class="pos">${p.position}${p.position2 ? '/' + p.position2 : ''}</span>${tradePlayerMeta(p)}${blind ? '' : ` <span class="muted">${p.overall} · ${p.team}</span>`}</span></label>`).join('');
     }
   };
   teamSel.addEventListener('change', refreshAi);
@@ -1019,7 +1027,7 @@ function renderShop(myRoster) {
       offersBox.innerHTML = j.offers.length ? j.offers.map((o) => `
         <div class="trade-offer">
           <div class="trade-offer-head">${o.aiTeam} offers${blind ? '' : ` <span class="muted">(${o.aiTotal} OVR)</span>`}</div>
-          <div class="muted">${o.aiPlayers.map((p) => `${p.name}${blind ? '' : ` (${p.overall})`}`).join(', ')}</div>
+          <div class="muted">${o.aiPlayers.map((p) => `<div>${p.name} <span class="pos">${p.position}${p.position2 ? '/' + p.position2 : ''}</span>${tradePlayerMeta(p)}${blind ? '' : ` · OVR ${p.overall}`}</div>`).join('')}</div>
           <button class="accept" data-my="${JSON.stringify(ids)}" data-ai="${JSON.stringify(o.aiPlayers.map((p) => p.id))}">${t('trade.acceptBtn')}</button>
         </div>`).join('') : `<p class="muted">${t('trade.noOffers')}</p>`;
       offersBox.querySelectorAll('.accept').forEach((b) => b.addEventListener('click', () => {
@@ -1047,8 +1055,8 @@ function renderIncoming() {
       div.className = 'trade-offer';
       const blind = isBlind();
       div.innerHTML = `
-        <div class="trade-offer-head">${p.aiTeam} wants <span class="muted">${p.myPlayers.map((x) => `${x.name}${blind ? '' : ` (${x.overall})`}`).join(', ')}</span></div>
-        <div class="muted">Offers ${p.aiPlayers.map((x) => `${x.name}${blind ? '' : ` (${x.overall})`}`).join(', ')}</div>
+        <div class="trade-offer-head">${p.aiTeam} wants <span class="muted">${p.myPlayers.map((x) => `<div>${x.name} <span class="pos">${x.position}</span>${tradePlayerMeta(x)}${blind ? '' : ` · OVR ${x.overall}`}</div>`).join('')}</span></div>
+        <div class="muted">Offers ${p.aiPlayers.map((x) => `<div>${x.name} <span class="pos">${x.position}</span>${tradePlayerMeta(x)}${blind ? '' : ` · OVR ${x.overall}`}</div>`).join('')}</div>
         <button class="accept">${t('trade.acceptBtn')}</button>`;
       div.querySelector('.accept').addEventListener('click', () => {
         doTrade(p.myPlayers.map((x) => x.id), p.aiPlayers.map((x) => x.id), msg, true);

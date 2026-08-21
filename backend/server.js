@@ -50,6 +50,13 @@ function isBlindMode() {
   return getState('mode') === 'blind';
 }
 
+// Salary cap: only NORMAL mode with hard difficulty. Dynasty deliberately has NO
+// total salary cap, so a dynasty can stack talent and break through without being
+// budget-blocked (difficulty stays 'hard' there for other effects, e.g. AI bonus).
+function salaryCapActive() {
+  return getState('difficulty') === 'hard' && getState('game_mode') !== 'dynasty';
+}
+
 // Strip ability fields from a playerBrief object in blind mode.
 // Keeps: id, name, position, position2, age, pts, trb, ast, stl, blk, fgPct, threePct, ftPct
 // Hides: overall, epm, oepm, depm, rating, salary
@@ -193,8 +200,10 @@ app.get('/api/draft', (req, res) => {
   // Annual rookie draft: always 1 pick per team, board is the full draft class
   const isRookieDraft = getState('draft_class') && JSON.parse(getState('draft_class')).length > 0;
   const offseason = isRookieDraft;
-  let candidates = isRookieDraft ? draftBoard() : sim.draftCandidates(db);
-  const hard = getState('difficulty') === 'hard';
+  // Dynasty's INITIAL draft shows 3 cards per round (harder choice); normal shows 5.
+  const candidateCount = getState('game_mode') === 'dynasty' ? 3 : 5;
+  let candidates = isRookieDraft ? draftBoard() : sim.draftCandidates(db, candidateCount);
+  const hard = salaryCapActive();
   const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
   const spent = hard
     ? db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
@@ -227,9 +236,10 @@ app.post('/api/draft/reroll', (req, res) => {
   if (rerolls <= 0) return res.status(400).json({ error: 'No rerolls left' });
   setState('rerolls', rerolls - 1);
   const offseason = parseInt(getState('offseason_picks') || '0', 10) > 0;
-  let candidates = offseason ? draftBoard() : sim.draftCandidates(db);
-  // hard mode: also guarantee affordability on reroll
-  if (getState('difficulty') === 'hard' && !offseason) {
+  const candidateCount = getState('game_mode') === 'dynasty' ? 3 : 5;
+  let candidates = offseason ? draftBoard() : sim.draftCandidates(db, candidateCount);
+  // hard mode (normal difficulty only): also guarantee affordability on reroll
+  if (salaryCapActive() && !offseason) {
     const rosterCount = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(currentSession()).c;
     const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
       .reduce((s, p) => s + sim.playerSalary(p.overall, p.epm), 0);
@@ -257,8 +267,9 @@ app.post('/api/roster', (req, res) => {
   if (db.prepare('SELECT 1 FROM roster WHERE player_id = ? AND session_id = ?').get(playerId, currentSession()))
     return res.status(400).json({ error: 'Player already drafted' });
 
-  // hard mode: enforce the salary cap (initial draft only — rookie draft has its own budget logic)
-  if (getState('difficulty') === 'hard' && !isRookieDraft) {
+  // salary cap: enforce (normal hard mode only; dynasty has no cap, and the rookie
+  // draft has its own budget logic)
+  if (salaryCapActive() && !isRookieDraft) {
     const p = db.prepare('SELECT overall, epm FROM players WHERE id = ?').get(playerId);
     const spent = db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession())
       .reduce((s, x) => s + sim.playerSalary(x.overall, x.epm), 0);
@@ -442,7 +453,7 @@ app.post('/api/sign', (req, res) => {
   const roster = applyDynasty(db.prepare('SELECT p.* FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(session));
   const curSal = roster.reduce((s, x) => s + sim.playerSalary(x.overall, x.epm), 0);
   const newSal = curSal + sim.playerSalary(p.overall, p.epm);
-  if (getState('game_mode') === 'dynasty' && newSal > FA_SALARY_CAP) {
+  if (salaryCapActive() && newSal > FA_SALARY_CAP) {
     return res.json({ accepted: false, message: `薪资空间不足: 当前 $${curSal}M + 签约 $${sim.playerSalary(p.overall, p.epm)}M = $${newSal}M (上限 $${FA_SALARY_CAP}M)` });
   }
   // FA signing limit per offseason
@@ -1627,7 +1638,15 @@ function myRosterRows() {
   return applyDynasty(db.prepare('SELECT p.*, r.role, r.slot FROM roster r JOIN players p ON p.id = r.player_id WHERE r.session_id = ?').all(currentSession()));
 }
 
-function brief(p) { return { id: p.id, name: p.name, position: p.position, overall: p.overall }; }
+// Compact player info for trade pool / offers / proposals. Includes age + per-game
+// stats (observed performance, shown even in blind mode) so the player can evaluate
+// an offer — previously only name/position/overall were sent.
+function brief(p) {
+  return {
+    id: p.id, name: p.name, position: p.position, position2: p.position2,
+    age: p.age, overall: p.overall, pts: p.pts, trb: p.trb, ast: p.ast,
+  };
+}
 
 // Pair incoming players to outgoing players' role/slot (highest overall first),
 // so a traded-away starter is replaced by a starter (keeps 5 starters).
