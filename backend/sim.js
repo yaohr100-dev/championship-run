@@ -83,7 +83,10 @@ function moraleFactor(streak) {
 // changes are gradual rather than jagged.
 function ageDelta(age) {
   const d = age - 27;
-  if (d <= 0) return -0.12 * d * d;
+  // Growth side is a fairly deep quadratic so young prospects have real upside
+  // (a 20-year-old at 85 peaks ~96 instead of a flat 92); decline side keeps the
+  // gentle smooth drop.
+  if (d <= 0) return -0.17 * d * d;
   return -(0.10 * d * d + 0.0015 * d * d * d);
 }
 
