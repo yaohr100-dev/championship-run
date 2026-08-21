@@ -1317,8 +1317,21 @@ function showResult() {
     const champ = r.playoff ? r.playoff.champion : null;
     const eliminated = r.playoff ? r.playoff.userEliminated : false;
     const isUserChamp = !!champ && !eliminated;
-    const banner = isUserChamp ? `🏆 ${t('result.champions')}` : (eliminated ? `${t('result.eliminated')} ${r.playoff.userEliminatedRound} ${t('result.eliminatedRound')}` : `${champ} ${t('result.otherChampOther')}`);
-    const sub = isUserChamp ? `${r.teamName} ${t('result.wonTitle')} ${t('result.dynastyMaterial')}` : (eliminated ? t('result.rebuild') : `${champ} ${t('result.otherChampOther')}`);
+    const missed = !r.playoff; // user missed the playoffs — there is no champion info
+    const banner = isUserChamp
+      ? `🏆 ${t('result.champions')}`
+      : eliminated
+        ? `${t('result.eliminated')} ${r.playoff.userEliminatedRound} ${t('result.eliminatedRound')}`
+        : missed
+          ? t('season.missedPlayoffs')
+          : `${champ} ${t('result.otherChampOther')}`;
+    const sub = isUserChamp
+      ? `${r.teamName} ${t('result.wonTitle')} ${t('result.dynastyMaterial')}`
+      : eliminated
+        ? t('result.rebuild')
+        : missed
+          ? t('result.rebuild')
+          : `${champ} ${t('result.otherChampOther')}`;
     const record = r.season ? `${r.season.wins}-${r.season.losses}` : '';
     const myAwards = [];
     if (r.awards) {

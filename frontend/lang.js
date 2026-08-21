@@ -686,7 +686,15 @@ const LANG = {
 
 // Current language (persisted in localStorage)
 let currentLang = localStorage.getItem('cr_lang') || 'zh';
-const t = (key) => (LANG[currentLang] && LANG[currentLang][key]) || (LANG.en[key]) || key;
+// NOTE: check `!== undefined`, NOT truthiness — some keys have an intentional empty
+// string value (e.g. en `result.eliminatedRound` = ''), and `||` would fall through
+// to the raw key and print "result.eliminatedRound" in the UI.
+const t = (key) => {
+  const lang = LANG[currentLang];
+  if (lang && lang[key] !== undefined) return lang[key];
+  if (LANG.en[key] !== undefined) return LANG.en[key];
+  return key;
+};
 
 // Apply translations to all elements with data-i18n attribute
 function applyI18n() {
