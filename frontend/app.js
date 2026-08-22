@@ -453,7 +453,7 @@ async function loadDraft() {
   state.hardMode = j.hardMode;
   state.budget = j.budget;
   state.spent = j.spent;
-  await renderDraftRoster(j.offseason); // rookie draft: allow releasing players
+  await renderDraftRoster(j.offseason, j.signLimit); // rookie draft: allow releasing players
   // rookie draft: roster may be full (auto-cut handles it), don't skip to lineup
   if (j.rosterCount >= j.rosterSize && !j.offseason) {
     show('lineup');
@@ -560,19 +560,23 @@ async function loadFreeAgency() {
     btn.disabled = r.refreshes <= 0;
     renderFACandidates(r.candidates);
   };
-  renderFARoster(j.roster);
+  renderFARoster(j.roster, j.signLimit, j.signed);
   renderFACandidates(j.candidates);
 }
 
-function renderFARoster(roster) {
+function renderFARoster(roster, signLimit, signed) {
   const box = $('fa-roster');
+  // Can only drop below 10 as far as the remaining FA signings can refill —
+  // otherwise the roster would be stuck unable to reach 10.
+  const blocked = roster.length <= 10 - (signLimit - signed);
   box.innerHTML = `<b>${t('result.starters')}</b> <span class="muted">(${roster.length}/10)</span>` +
     roster.map((p) => `
       <div class="fa-row">
         <span>${p.name} <span class="pos">${p.position}</span>${p.age != null ? ` <span class="muted">${p.age}${t('misc.age')}</span>` : ''} <span class="muted">OVR ${p.overall}</span>${p.contract != null ? ` · <span class="muted">${p.contract}${t('fa.years')}</span>` : ''}</span>
-        <button data-id="${p.id}" class="ghost">${t('fa.release')}</button>
+        <button data-id="${p.id}" class="ghost"${blocked ? ` disabled title="${t('fa.releaseBlocked')}"` : ''}>${t('fa.release')}</button>
       </div>`).join('');
   box.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
+    if (b.disabled) return;
     try {
       await api('/api/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +b.dataset.id }) });
       await loadFreeAgency();
@@ -1496,7 +1500,7 @@ function printSummary(r) {
   URL.revokeObjectURL(url);
 }
 
-async function renderDraftRoster(allowRelease = false) {
+async function renderDraftRoster(allowRelease = false, signLimit = 2) {
   const { roster } = await api('/api/roster');
   state.roster = roster;
   const box = $('draft-roster');
@@ -1506,8 +1510,11 @@ async function renderDraftRoster(allowRelease = false) {
   for (const p of roster) posCount[p.position] = (posCount[p.position] || 0) + 1;
   const needs = ['PG', 'SG', 'SF', 'PF', 'C'].filter((p) => !posCount[p]);
   const strength = computeStrength(roster, [], true);
+  // During the rookie draft, releasing must leave a roster free agency can refill
+  // (no signings have happened yet, so the whole sign limit is available).
+  const blocked = allowRelease && roster.length <= 10 - signLimit;
   const chips = roster.map((p) => `
-    <span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}${allowRelease ? `<button class="chip-x" data-release="${p.id}" title="${t('fa.release')}">✕</button>` : ''}</span>`).join('');
+    <span class="chip">${p.name}${blind ? '' : ` <span class="pos">${p.position}</span> <span class="muted">${p.overall}</span>`}${allowRelease ? `<button class="chip-x" data-release="${p.id}" title="${t('fa.release')}"${blocked ? ` disabled title="${t('fa.releaseBlocked')}"` : ''}>✕</button>` : ''}</span>`).join('');
   box.innerHTML = `
     <div class="roster-head">${t('result.starters')} <span class="muted">(${roster.length}/10)</span>
       ${allowRelease && roster.length >= 10 ? `<span class="muted">· ${t('draft.rosterFull')}</span>` : ''}
@@ -1518,7 +1525,7 @@ async function renderDraftRoster(allowRelease = false) {
     <div class="chip-list">${chips}</div>`;
   if (allowRelease) {
     box.querySelectorAll('[data-release]').forEach((b) => b.addEventListener('click', async () => {
-      if (draftBusy) return;
+      if (draftBusy || b.disabled) return;
       try {
         await api('/api/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: +b.dataset.release }) });
         await loadDraft();

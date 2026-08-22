@@ -90,6 +90,7 @@ const LANG = {
     'fa.needs': 'Needs',
     'fa.refresh': 'Refresh market',
     'fa.signings': 'Signings',
+    'fa.releaseBlocked': 'Releasing would drop the roster below what free agency can refill',
 
     // ---- Lineup ----
     'lineup.title': 'Set Your Starting 5',
@@ -442,6 +443,7 @@ const LANG = {
     'fa.needs': '需求',
     'fa.refresh': '刷新市场',
     'fa.signings': '已签约',
+    'fa.releaseBlocked': '再裁阵容将低于自由市场可补回的数量',
     'lineup.title': '设置首发五人',
     'lineup.desc': '为每个位置分配一名球员。错位球员会受到评分惩罚。',
     'lineup.strength': '球队实力',

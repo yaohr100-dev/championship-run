@@ -229,6 +229,7 @@ app.get('/api/draft', (req, res) => {
     userPosition: isRookieDraft ? draftUserPosition() : null,
     picks: isRookieDraft ? (getState('draft_picks') ? JSON.parse(getState('draft_picks')) : []) : [],
     canPass: getState('draft_can_pass') === '1',
+    signLimit: FA_SIGN_LIMIT, // offseason release guard uses FA sign capacity
   });
 });
 app.post('/api/draft/reroll', (req, res) => {
@@ -428,6 +429,22 @@ app.post('/api/release', (req, res) => {
       setPlayerContracts(contracts);
     }
     return res.json({ ok: true });
+  }
+  // Dynasty offseason soft-lock guard: FA can only fill `FA_SIGN_LIMIT - signed`
+  // more spots, and the season needs exactly 10 — so releasing past that point would
+  // leave the roster unable to refill and the player stuck. Applies during free
+  // agency and the annual rookie draft (where releases free a pick slot).
+  if (getState('game_mode') === 'dynasty') {
+    const phase = getState('phase');
+    const inRookieDraft = phase === 'draft' && (getState('draft_class') && JSON.parse(getState('draft_class')).length > 0);
+    if (phase === 'freeagency' || inRookieDraft) {
+      const count = db.prepare('SELECT COUNT(*) c FROM roster WHERE session_id = ?').get(session).c;
+      const signed = parseInt(getState('fa_signed') || '0', 10);
+      const fillCapacity = FA_SIGN_LIMIT - signed;
+      if (count - 1 < sim.ROSTER_SIZE - fillCapacity) {
+        return res.status(400).json({ error: `Cannot release: roster would drop below what free agency can refill (${fillCapacity} signing${fillCapacity === 1 ? '' : 's'} left)` });
+      }
+    }
   }
   db.prepare('DELETE FROM roster WHERE player_id = ? AND session_id = ?').run(playerId, session);
   const contracts = playerContracts();
